@@ -20,7 +20,7 @@ Term native_pipe_run(Env e, Term* f, IoWork* w) {
 }
 
 static void __attribute__((constructor)) native_pipe_use(void) {
-  io_eff(CID(Native.pipe), native_pipe_run, 0);
+  io_eff(CID(Native.pipe), native_pipe_run);
 }
 
 #endif
@@ -41,7 +41,7 @@ Term native_stdin_run(Env e, Term* f, IoWork* w) {
 }
 
 static void __attribute__((constructor)) native_stdin_use(void) {
-  io_eff(CID(Native.stdin), native_stdin_run, 0);
+  io_eff(CID(Native.stdin), native_stdin_run);
 }
 
 #endif

@@ -88,7 +88,7 @@ def respond(+id: J.JSON, result: Answer) -> IO(Unit):
 
 def notify(+context: Context, note: Note) -> IO(Unit):
   do IO<Unit>:
-    sent : Bool <- Chan.send(Note, inbox(context), note)
+    sent : Result<&1, &1, Note, Unit> <- Chan.send(Note, inbox(context), note)
     return Unit{}
 
 # A request fiber prints its answer, then tells the hub it is done.
@@ -302,7 +302,7 @@ def write_answer(+child: String, result: Result<&1, &1, U32 & String, Unit>, +by
 def written(pair: File & Result<&1, &1, U32 & String, Unit>, feed: Chan(Feed), +id: J.JSON, +bytes: Nat) -> IO(Unit):
   (file, result) = pair
   do IO<Unit>:
-    sent : Bool <- Chan.send(Feed, feed, Wrote{file, id, result, bytes})
+    sent : Result<&1, &1, Feed, Unit> <- Chan.send(Feed, feed, Wrote{file, id, result, bytes})
     return Unit{}
 
 # A write runs in a fiber of its own, so a child that is not reading never
@@ -325,7 +325,7 @@ def fed(+context: Context, +child: String) -> IO(Unit):
 def stopped_wait(+context: Context, +id: J.JSON, +dir: String) -> IO(Unit):
   do IO<Unit>:
     +remaining : U32 <- Scope.remaining(scope(context), Time.max_timeout())
-    subprocess(context, id, Core.plan(self(context), Core.Wait{dir, Some{3000}}, defaults(context), remaining))
+    subprocess(context, id, Core.plan(self(context), Core.WaitJob{dir, Some{3000}}, defaults(context), remaining))
 
 def stop_marked(+context: Context, +id: J.JSON, +dir: String, marked: Result<&1, &1, U32 & String, String>) -> IO(Unit):
   match marked:
@@ -778,7 +778,7 @@ def send_feed(+child: Child, item: Feed, state: Hub) -> IO(Hub):
   match state:
     case Hub{client, waiting, children, inflight, ending}:
       do IO<Hub>:
-        sent : Bool <- Chan.send(Feed, child_feed(child), item)
+        sent : Result<&1, &1, Feed, Unit> <- Chan.send(Feed, child_feed(child), item)
         return Hub{client, waiting, pending_changed(children, child_id(child), True{}), inflight, ending}
 
 def fed_if(+child: Child, item: Feed, state: Hub, +id: J.JSON, ok: Bool) -> IO(Hub):
@@ -923,14 +923,14 @@ def ticker(fuel: Nat, +context: Context, more: Bool) -> IO(Unit):
     case 1n+rest True{}:
       do IO<Unit>:
         IO.sleep(100)
-        sent : Bool <- Chan.send(Note, inbox(context), Tick{})
-        ticker(rest, context, sent)
+        sent : Result<&1, &1, Note, Unit> <- Chan.send(Note, inbox(context), Tick{})
+        ticker(rest, context, Result.is_done(&1, &1, Note, Unit, sent))
 
 def ending_child(child: Child) -> IO(Unit):
   match child:
     case Child{id, +dir, feed, pending, live}:
       do IO<Unit>:
-        sent : Bool <- Chan.send(Feed, feed, FeedEnd{})
+        sent : Result<&1, &1, Feed, Unit> <- Chan.send(Feed, feed, FeedEnd{})
         marked : Result<&1, &1, U32 & String, String> <- Host.put(dir, "stop", "stop")
         return Unit{}
 

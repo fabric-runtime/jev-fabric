@@ -166,7 +166,7 @@ type Op is Data:
   Spawn{argv: List<&2, String>, pipe: Bool, timeout: Maybe<&2, U32>, label: String, cwd: String}
   Status{job: String}
   Events{job: String, after: U32, wait: Maybe<&2, U32>}
-  Wait{job: String, timeout: Maybe<&2, U32>}
+  WaitJob{job: String, timeout: Maybe<&2, U32>}
   Stop{job: String}
   Watch{job: String, literal: String, timeout: Maybe<&2, U32>}
   Write{job: String, text: String}
@@ -616,7 +616,7 @@ def wait_op(+fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
     allowed(fields, ["job", "timeoutMs"])
     id : String <- job(fields)
     ms : Maybe<&2, U32> <- timeout(fields, 3600000)
-    return Wait{id, ms}
+    return WaitJob{id, ms}
 
 def stop_op(+fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
   do Result<&1, &1, Error, Op>:
@@ -834,7 +834,7 @@ def plan(+self: String, op: Op, defaults: Defaults, +remaining: U32) -> Result<&
       control(cli(self, ["status", job]), remaining, False{})
     case Events{job, after, wait}:
       events_plan(self, job, after, wait, remaining)
-    case Wait{job, requested}:
+    case WaitJob{job, requested}:
       +ms : U32 = inner(requested, wait(defaults), remaining)
       timed(cli(self, ["wait", "--timeout-ms", U32.show(ms), job]), "", ms, False{})
     case Stop{job}:
@@ -1028,7 +1028,7 @@ def job_of(op: Op) -> Maybe<&2, String>:
       Some{job}
     case Events{job, after, wait}:
       Some{job}
-    case Wait{job, timeout}:
+    case WaitJob{job, timeout}:
       Some{job}
     case Stop{job}:
       Some{job}
@@ -1061,8 +1061,8 @@ def retarget(op: Op, dir: String) -> Op:
       Status{dir}
     case Events{job, after, wait}:
       Events{dir, after, wait}
-    case Wait{job, timeout}:
-      Wait{dir, timeout}
+    case WaitJob{job, timeout}:
+      WaitJob{dir, timeout}
     case Watch{job, literal, timeout}:
       Watch{dir, literal, timeout}
     case other:

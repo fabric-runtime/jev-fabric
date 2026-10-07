@@ -16,7 +16,7 @@ command starts with `jev-fabric --`.
 ## Check the install
 
 ```bash
-jev-fabric -- --version        # 0.5.0-native (Bend 2.0.34)
+jev-fabric -- --version        # 0.5.1-native (Bend 2.0.36)
 jev-fabric -- capabilities     # {"version":…,"protocol":2,"store":1,"platform":…,"features":[…]}
 ```
 
@@ -149,7 +149,7 @@ Write one JSON request per line; read one response per line and match it by
 `id`: requests run concurrently, so responses can arrive out of order.
 
 ```text
-← {"ready":{"protocol":2,"version":"0.5.0-native","store":1,"features":[...],...}}
+← {"ready":{"protocol":2,"version":"0.5.1-native","store":1,"features":[...],...}}
 → {"id":1,"op":"start","argv":["/bin/sh","-c","npm run dev"]}
 ← {"id":1,"ok":true,"result":{"id":"<job>"}}
 → {"id":2,"op":"watch","job":"<job>","literal":"ready","timeoutMs":30000}
@@ -189,7 +189,7 @@ shared deadline scopes (a game bot, a crawler, a supervisor), write a Bend
 program against the library and run it:
 
 ```bash
-jev-fabric -- run program.bend arg1 arg2     # compiles (needs `bend` 2.0.34), then runs
+jev-fabric -- run program.bend arg1 arg2     # compiles (needs `bend` 2.0.36), then runs
 ```
 
 HTTPS keeps one pooled TLS connection per process, so a Bend program or a

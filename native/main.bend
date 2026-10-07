@@ -150,7 +150,7 @@ def dispatch(args: List<String>) -> IO(Unit):
     case Con{"--help", Nil{}}:
       usage()
     case Con{"--version", Nil{}}:
-      IO.print(Cli.version() ++ " (Bend 2.0.34)")
+      IO.print(Cli.version() ++ " (Bend 2.0.36)")
     case Con{"update", Nil{}}:
       update()
     case Con{"capabilities", Nil{}}:

@@ -1,5 +1,12 @@
 Native process orchestration with typed, explicit Jev decisions.
 
+## Changes in 0.5.1
+
+- Update the audited compiler and CI archive checksums to Bend 2.0.36.
+- Adapt native effect registrations, channel send results, and internal names
+  to the new Base API, including the shipped browser/game examples.
+- Keep the public CLI, protocol 2, store format 1, and wire operations unchanged.
+
 ## Install
 
 ```sh
@@ -10,8 +17,8 @@ npx skills add fabric-runtime/jev-fabric
 | Archive | Platform |
 | --- | --- |
 | `jev-fabric-darwin-universal.tar.gz` | macOS 11+, Apple silicon and Intel |
-| `jev-fabric-linux-x64.tar.gz` | Linux x86_64, glibc 2.35+ |
-| `jev-fabric-linux-arm64.tar.gz` | Linux aarch64, glibc 2.35+ |
+| `jev-fabric-linux-x64.tar.gz` | Linux x86_64, glibc 2.28+ |
+| `jev-fabric-linux-arm64.tar.gz` | Linux aarch64, glibc 2.28+ |
 
 Update later with `jev-fabric -- update`, which reruns the installer.
 
@@ -19,4 +26,4 @@ Each archive holds the `jev-fabric` executable, the Bend library (`native/`) for
 `jev-fabric -- run` programs, single-file Python and TypeScript clients
 (`clients/`) for `jev-fabric -- serve` sessions, the examples and the agent skill. Verify with
 `SHA256SUMS`; the installer does this for you. Jev calls need the system libcurl or
-`curl` and a CA store; compiling your own Bend programs needs Bend 2.0.34.
+`curl` and a CA store; compiling your own Bend programs needs Bend 2.0.36.

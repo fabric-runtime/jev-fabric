@@ -62,7 +62,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: jev-fabric-c
-      - name: Compile (the flags Bend 2.0.34 uses)
+      - name: Compile (the flags Bend 2.0.36 uses)
         if: ${{ !matrix.image }}
         run: |
           mkdir -p build

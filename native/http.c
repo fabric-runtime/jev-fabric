@@ -325,6 +325,6 @@ Term native_http_post_run(Env e, Term *f, IoWork *w) {
 }
 
 static void __attribute__((constructor)) native_http_post_use(void) {
-  io_eff(CID(Native.http_post), native_http_post_run, 0);
+  io_eff(CID(Native.http_post), native_http_post_run);
 }
 #endif

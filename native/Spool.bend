@@ -215,7 +215,7 @@ def terminal(stated: Stated) -> Bool:
 # ---------------------------------------------------------------------------
 # The long poll.
 
-type Poll is Type:
+type ReadPoll is Type:
   Polling{file: File}
   Answered{file: File, look: Seen}
   Failed{file: File, error: Error}
@@ -229,14 +229,14 @@ def iteration(file: File, rolling: Bool, +id: String, +offset: Nat, +max: Nat) -
         stated : Stated <- status(id)
         plain_look(file, offset, max, terminal(stated))
 
-def chosen(file: File, look: Seen, answer: Bool) -> Poll:
+def chosen(file: File, look: Seen, answer: Bool) -> ReadPoll:
   match answer:
     case True{}:
       Answered{file, look}
     case False{}:
       Polling{file}
 
-def decided(pair: Looked, +elapsed: Nat, +wait: Nat) -> Poll:
+def decided(pair: Looked, +elapsed: Nat, +wait: Nat) -> ReadPoll:
   (file, result) = pair
   match result:
     case Fail{e}:
@@ -248,30 +248,30 @@ def decided(pair: Looked, +elapsed: Nat, +wait: Nat) -> Poll:
 
 def poll(
   fuel: Nat,
-  state: Poll,
+  state: ReadPoll,
   +rolling: Bool,
   +id: String,
   +offset: Nat,
   +max: Nat,
   +started: Nat,
   +wait: Nat,
-) -> IO(Poll):
+) -> IO(ReadPoll):
   match fuel state:
     case _ Answered{file, look}:
-      IO.pure(Poll, Answered{file, look})
+      IO.pure(ReadPoll, Answered{file, look})
     case _ Failed{file, error}:
-      IO.pure(Poll, Failed{file, error})
+      IO.pure(ReadPoll, Failed{file, error})
     case 0n Polling{file}:
-      do IO<Poll>:
+      do IO<ReadPoll>:
         pair : Looked <- iteration(file, rolling, id, offset, max)
         return decided(pair, wait, wait)
     case 1n+rest Polling{file}:
-      do IO<Poll>:
+      do IO<ReadPoll>:
         before : Nat <- IO.now()
         IO.sleep(Core.interval(Nat.sub(before, started)))
         pair : Looked <- iteration(file, rolling, id, offset, max)
         now : Nat <- IO.now()
-        next : Poll = decided(pair, Nat.sub(now, started), wait)
+        next : ReadPoll = decided(pair, Nat.sub(now, started), wait)
         poll(rest, next, rolling, id, offset, max, started, wait)
 
 def recorded(stated: Stated, look: Seen, +public: String, +stream: String, encoded: Bool) -> Result<&1, &1, Error, String>:
@@ -282,7 +282,7 @@ def recorded(stated: Stated, look: Seen, +public: String, +stream: String, encod
       +eof = ended || (done && List.is_empty(&2, U32, bytes))
       Done{Core.record(Core.Read{public, stream, start, omitted, bytes, eof, state}, encoded)}
 
-def finish(result: Poll, +id: String, +public: String, +stream: String, encoded: Bool) -> IO(Result<&1, &1, Error, String>):
+def finish(result: ReadPoll, +id: String, +public: String, +stream: String, encoded: Bool) -> IO(Result<&1, &1, Error, String>):
   match result:
     case Answered{file, look}:
       do IO<Result<&1, &1, Error, String>>:
@@ -316,8 +316,8 @@ def read_open(
       do IO<Result<&1, &1, Error, String>>:
         +started : Nat <- IO.now()
         first : Looked <- iteration(file, rolling, id, offset, max)
-        state : Poll = decided(first, 0n, wait)
-        result : Poll <- poll(Nat.add(wait, 2n), state, rolling, id, offset, max, started, wait)
+        state : ReadPoll = decided(first, 0n, wait)
+        result : ReadPoll <- poll(Nat.add(wait, 2n), state, rolling, id, offset, max, started, wait)
         finish(result, id, public, stream, encoded)
 
 def plain_opened(result: Result<&1, &1, Error, File>) -> Result<&1, &1, Error, File & Bool>:

@@ -1026,9 +1026,9 @@ Term jfh_spool_run(Env e, Term *f, IoWork *w) {
 
 static void __attribute__((constructor)) jfh_os_use(void) {
 #ifdef CID(jfh_os)
-  io_eff(CID(jfh_os), jfh_os_run, 0);
+  io_eff(CID(jfh_os), jfh_os_run);
 #endif
 #ifdef CID(jfh_spool)
-  io_eff(CID(jfh_spool), jfh_spool_run, 0);
+  io_eff(CID(jfh_spool), jfh_spool_run);
 #endif
 }

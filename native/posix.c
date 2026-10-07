@@ -702,18 +702,18 @@ static void __attribute__((constructor)) native_exec_use(void) {
   signal(SIGPIPE, SIG_IGN);
   atexit(jf_cleanup);
 #ifdef CID(Native.exec)
-  io_eff(CID(Native.exec), native_exec_run, 0);
+  io_eff(CID(Native.exec), native_exec_run);
 #endif
 #ifdef CID(Native.capture)
-  io_eff(CID(Native.capture), native_capture_run, 0);
+  io_eff(CID(Native.capture), native_capture_run);
 #endif
 #ifdef CID(Native.exec_logged)
-  io_eff(CID(Native.exec_logged), native_exec_logged_run, 0);
+  io_eff(CID(Native.exec_logged), native_exec_logged_run);
 #endif
 #ifdef CID(Native.exec_pipe)
-  io_eff(CID(Native.exec_pipe), native_exec_pipe_run, 0);
+  io_eff(CID(Native.exec_pipe), native_exec_pipe_run);
 #endif
 #ifdef CID(Native.cancel)
-  io_eff(CID(Native.cancel), native_cancel_run, 0);
+  io_eff(CID(Native.cancel), native_cancel_run);
 #endif
 }

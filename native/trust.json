@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "compiler": "bend 2.0.34",
+  "compiler": "bend 2.0.36",
   "pure": [
     "native/TimeCore.bend", "native/Cli.bend", "native/Core.bend", "native/Json.bend", "native/Codec.bend", "native/Wire.bend",
     "native/Streams.bend", "native/MonitorCore.bend", "native/HttpCore.bend",

@@ -13,7 +13,7 @@ export interface Manifest {
 }
 interface Token { value: string; literal: boolean; line: number }
 
-const REVIEWED_COMPILER = 'bend 2.0.34';
+const REVIEWED_COMPILER = 'bend 2.0.36';
 const WORD_CHAR = /[A-Za-z0-9_./-]/;
 const FOREIGN_IMPORT = /^"[A-Za-z0-9_./-]+\.c"$/;
 const EFFECT_CAPABILITY = /(^|[.])(IO|File|Socket|Listener|Window|Audio|Chan)([.]|$)/;

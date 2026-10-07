@@ -22,51 +22,51 @@ def ends_line(bytes: List<&2, U32>) -> Bool:
       U32.is_eq(b, 10)
 
 # Reading one line: `pending` holds the bytes seen so far, newest first.
-type Poll is Type:
+type LinePoll is Type:
   Waiting{session: Session.Session, offset: U32, pending: List<&2, U32>}
-  Ready{session: Session.Session, offset: U32, line: Line}
+  LineReady{session: Session.Session, offset: U32, line: Line}
 
-def complete(session: Session.Session, +offset: U32, pending: List<&2, U32>, done: Bool) -> Poll:
+def complete(session: Session.Session, +offset: U32, pending: List<&2, U32>, done: Bool) -> LinePoll:
   match done:
     case True{}:
-      Ready{session, offset, Done{List.reverse(&2, U32, pending)}}
+      LineReady{session, offset, Done{List.reverse(&2, U32, pending)}}
     case False{}:
       Waiting{session, offset, pending}
 
-def received(pair: Session.Session & Session.Bytes, offset: U32, pending: List<&2, U32>) -> Poll:
+def received(pair: Session.Session & Session.Bytes, offset: U32, pending: List<&2, U32>) -> LinePoll:
   (session, bytes) = pair
   match bytes:
     case Fail{e}:
-      Ready{session, offset, Fail{e}}
+      LineReady{session, offset, Fail{e}}
     case Done{+chunk}:
       +count : U32 = U32.from_nat(List.length(&2, U32, chunk))
       +next : List<&2, U32> = List.append(&2, U32, List.reverse(&2, U32, chunk), pending)
       complete(session, (offset + count : U32), next, ends_line(next))
 
-def read_more(session: Session.Session, +offset: U32, pending: List<&2, U32>) -> IO(Poll):
-  do IO<Poll>:
+def read_more(session: Session.Session, +offset: U32, pending: List<&2, U32>) -> IO(LinePoll):
+  do IO<LinePoll>:
     pair : Session.Session & Session.Bytes <- Session.read_stdout(session, offset, 65536)
     return received(pair, offset, pending)
 
-def settle(poll: Poll) -> IO(Poll):
+def settle(poll: LinePoll) -> IO(LinePoll):
   match poll:
-    case Ready{session, offset, line}:
-      IO.pure(Poll, Ready{session, offset, line})
+    case LineReady{session, offset, line}:
+      IO.pure(LinePoll, LineReady{session, offset, line})
     case Waiting{session, offset, pending}:
-      do IO<Poll>:
+      do IO<LinePoll>:
         IO.sleep(1)
         return Waiting{session, offset, pending}
 
-def poll(fuel: Nat, state: Poll) -> IO(Poll):
+def poll(fuel: Nat, state: LinePoll) -> IO(LinePoll):
   match fuel state:
-    case fuel Ready{session, offset, line}:
-      IO.pure(Poll, Ready{session, offset, line})
+    case fuel LineReady{session, offset, line}:
+      IO.pure(LinePoll, LineReady{session, offset, line})
     case 0n Waiting{session, offset, pending}:
-      IO.pure(Poll, Ready{session, offset, Fail{(124, "bridge produced no line")}})
+      IO.pure(LinePoll, LineReady{session, offset, Fail{(124, "bridge produced no line")}})
     case 1n+left Waiting{session, offset, pending}:
-      do IO<Poll>:
-        read : Poll <- read_more(session, offset, pending)
-        next : Poll <- settle(read)
+      do IO<LinePoll>:
+        read : LinePoll <- read_more(session, offset, pending)
+        next : LinePoll <- settle(read)
         poll(left, next)
 
 def or_unknown(text: Result<&1, &1, Error, String>) -> String:
@@ -170,18 +170,18 @@ def parsed(session: Session.Session, client: Jev.Client, +offset: U32, stats: St
     case Done{+value}:
       finished(session, client, offset, stats, value, Codec.field(value, "done"))
 
-def line_read(client: Jev.Client, stats: Stats, state: Poll) -> IO(Game):
+def line_read(client: Jev.Client, stats: Stats, state: LinePoll) -> IO(Game):
   match state:
     case Waiting{session, offset, pending}:
       IO.pure(Game, Over{session, client, stats, "bridge line incomplete"})
-    case Ready{session, offset, Fail{(code, text)}}:
+    case LineReady{session, offset, Fail{(code, text)}}:
       IO.pure(Game, Over{session, client, stats, "bridge read failed: " ++ text})
-    case Ready{session, offset, Done{bytes}}:
+    case LineReady{session, offset, Done{bytes}}:
       parsed(session, client, offset, stats, Codec.read_bytes(bytes))
 
 def turn(session: Session.Session, client: Jev.Client, offset: U32, stats: Stats) -> IO(Game):
   do IO<Game>:
-    state : Poll <- poll(30000n, Waiting{session, offset, Nil{}})
+    state : LinePoll <- poll(30000n, Waiting{session, offset, Nil{}})
     line_read(client, stats, state)
 
 def play(fuel: Nat, game: Game) -> IO(Game):

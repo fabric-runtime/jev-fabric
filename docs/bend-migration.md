@@ -22,7 +22,7 @@ the native executable, through the thin Python and TypeScript clients in
 
 ## Minimal practical bridge
 
-Stock Bend (now 2.0.34) has native files, sockets, clocks, channels and
+Stock Bend (now 2.0.36) has native files, sockets, clocks, channels and
 concurrent IO, and since 2.0.28 a bounded `Process.run`, but no child-process
 group ownership, detached jobs or HTTPS stack. Pure Bend libraries supply the
 JSON/UTF-8 and typed decision logic; the system libcurl supplies verified,
@@ -64,7 +64,28 @@ access cannot be dropped merely to minimize line count.
 - System libcurl/curl, compiler, imported native programs, PATH and CA
   configuration are trusted. Keys stay out of argv/logs but are accessible to their owning process.
 
-## Toolchain findings retained from the spike
+## Bend 2.0.36 migration
+
+The current compiler is Bend 2.0.36. Its official macOS arm64 archive was
+SHA-256 verified against the upstream release digest; the installed compiler
+is byte-identical and passes `codesign --verify --strict`.
+
+- Native effects register with `io_eff(cid, run)`; the obsolete third argument
+  was removed from every project C registration. Compiler output stays unmodified.
+- Base now owns the `Poll` type and `Ready`/`Wait` constructors. Internal spool
+  polling uses `ReadPoll`, serve requests use `WaitJob`, and the browser/game
+  examples use `LinePoll`/`LineReady`. The public wire operation remains `wait`.
+- `Chan.send` returns `Result<&1, &1, A, Unit>` instead of `Bool`, preserving an
+  unsent value on a closed channel. Serve uses that result, and its shutdown
+  ticker continues only for `Done`, as it previously did for `True`.
+
+Local macOS arm64 verification passed: TypeScript checking; the safety gate
+across 59 modules, 16 pure modules, three proof roots and ten explicit foreign
+effects; all 17 native fixtures; and 160 offline tests (2,064 assertions).
+Direct probes confirmed version `0.5.1-native (Bend 2.0.36)`, protocol 2/store 1,
+and successful `exec` and JSONL `serve` receipts. No live model calls were made.
+
+## Bend 2.0.34 findings retained from the spike
 
 Local verification uses the official Bend 2.0.34 release, macOS arm64, Apple
 Clang 21 and Bun as a development driver. Bun drives the tests; Python 3 runs

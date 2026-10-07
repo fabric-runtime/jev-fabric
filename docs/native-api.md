@@ -1,6 +1,6 @@
 # Native API and execution contract
 
-Use stock Bend 2.0.34 native compilation. Imports below are relative to your
+Use stock Bend 2.0.36 native compilation. Imports below are relative to your
 source file; see `examples/native/`. Native code, PATH executables and imported
 modules are trusted. Affine ownership is a programming discipline, not secret
 isolation from the program that owns the client.
@@ -61,7 +61,7 @@ looked up on PATH.
 version string:
 
 ```json
-{"version":"0.5.0-native","protocol":2,"store":1,"platform":"darwin-arm64",
+{"version":"0.5.1-native","protocol":2,"store":1,"platform":"darwin-arm64",
  "features":["follow","list","label","start-24h","serve-24h","serve-concurrent","sessions","cwd",
              "durable-input","read","jev-request-credential"]}
 ```

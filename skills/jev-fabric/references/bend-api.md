@@ -2,7 +2,7 @@
 
 Use a Bend program when a task needs a loop: many Jev calls with one client, a
 persistent child process, or processes and decisions sharing one deadline.
-Requires the Bend 2.0.34 compiler (`bend guide` is the language reference).
+Requires the Bend 2.0.36 compiler (`bend guide` is the language reference).
 
 ## Setup
 

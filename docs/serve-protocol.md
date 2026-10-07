@@ -31,7 +31,7 @@ an invalid provider configuration exit (code 2 or 1) before the banner.
 The first output line is the banner. Read it before sending requests:
 
 ```json
-{"ready":{"protocol":2,"version":"0.5.0-native","timeoutMs":3600000,"maxEvaluations":1,"maxTokens":100000,
+{"ready":{"protocol":2,"version":"0.5.1-native","timeoutMs":3600000,"maxEvaluations":1,"maxTokens":100000,
  "store":1,"platform":"darwin-arm64","features":["follow","list","label","start-24h","serve-24h",
  "serve-concurrent","sessions","cwd","durable-input","read","jev-request-credential"]}}
 ```

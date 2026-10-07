@@ -100,7 +100,7 @@ jev-fabric -- capabilities
 ```
 
 ```json
-{"version":"0.5.0-native","protocol":2,"store":1,"platform":"darwin-arm64",
+{"version":"0.5.1-native","protocol":2,"store":1,"platform":"darwin-arm64",
  "features":["follow","list","label","start-24h","serve-24h","serve-concurrent",
              "sessions","cwd","durable-input","read","jev-request-credential"]}
 ```

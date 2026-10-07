@@ -4,7 +4,7 @@
 
 There are **zero unsafe definitions** in the project's native Bend, vendored
 Bend, probes, tests or native examples: neither `@unsafe` nor `def f?` is used.
-Every such module is checked by stock Bend 2.0.34. No proof holes or unimplemented
+Every such module is checked by stock Bend 2.0.36. No proof holes or unimplemented
 laws are permitted. No C, runtime or compiler changes were used to achieve this.
 
 `native/trust.json` declares sixteen pure production modules, three proof roots and

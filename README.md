@@ -67,7 +67,7 @@ prefers your own compatible install and falls back to this package.
 <details>
 <summary>Build from source</summary>
 
-Requires **Bend 2.0.34**, Clang and Bun (for the build-time safety gate).
+Requires **Bend 2.0.36**, Clang and Bun (for the build-time safety gate).
 
 ```sh
 sh scripts/build-native.sh             # or: bun run build
