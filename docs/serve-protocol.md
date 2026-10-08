@@ -2,9 +2,11 @@
 
 `jev-fabric -- serve` is a JSONL session over stdin and stdout for callers in any
 language. One session holds one affine Jev client (its call and token budget, its
-cached credential and its warm pooled HTTPS connection), one deadline, and the
-session children it spawned. Every other operation reuses the CLI's contracts:
-the receipts, job records and monitor records are the same JSON the CLI prints.
+cached legacy credential and warm pooled HTTPS connection), one deadline, and
+the session children it spawned. Additive `decide` shares the evaluation/token
+budget but uses ephemeral credentials and private curl 7.82+, not that pool.
+Every other operation reuses the CLI's contracts: the receipts, job records and
+monitor records are the same JSON the CLI prints.
 
 The protocol is the contract. [`clients/python/jev_fabric.py`](../clients/python/jev_fabric.py)
 and [`clients/typescript/jev-fabric.ts`](../clients/typescript/jev-fabric.ts) are
@@ -21,8 +23,8 @@ jev-fabric -- serve [--timeout-ms N] [max-evaluations [max-tokens]]
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--timeout-ms N` | `JEV_FABRIC_TIMEOUT_MS`, else 1 hour | Deadline for the whole session, 1..86400000 ms (24 hours) |
-| `max-evaluations` | 1 | Jev calls for the whole session, as `Jev.connect`. `0` disables Jev |
-| `max-tokens` | 100000 | Reported Jev tokens for the whole session |
+| `max-evaluations` | 1 | Shared `jev` + `decide` evaluations for the whole session. `0` disables both |
+| `max-tokens` | 100000 | Shared reported token budget; `0` prevents evaluation dispatch |
 
 The budgets are explicit and session-wide. They are not renewed per request, and
 failed dispatches still count. Invalid options, a malformed timer environment or
@@ -33,7 +35,7 @@ The first output line is the banner. Read it before sending requests:
 ```json
 {"ready":{"protocol":2,"version":"0.5.1-native","timeoutMs":3600000,"maxEvaluations":1,"maxTokens":100000,
  "store":1,"platform":"darwin-arm64","features":["follow","list","label","start-24h","serve-24h",
- "serve-concurrent","sessions","cwd","durable-input","read","jev-request-credential"]}}
+ "serve-concurrent","sessions","cwd","durable-input","read","jev-request-credential","decisions"]}}
 ```
 
 `protocol`, `store`, `platform` and `features` are what `jev-fabric -- capabilities`
@@ -41,16 +43,19 @@ prints. A client requires a protocol major and the features it uses; features ar
 only ever added within a major.
 
 The session ends when stdin closes (exit 0). It also ends when its deadline has
-passed (exit 124), when a partial line grows beyond 1 MiB (exit 2), or after
+passed (exit 124), when a partial line grows beyond 16 MiB (exit 2), or after
 16,777,216 reads of stdin (exit 1). Ending waits for every request in flight to
 answer and stops the session children (see [Session children](#session-children)).
 Jobs started with `start` keep running after it ends.
 
 ## Requests and responses
 
-Each request is one line of strict JSON (UTF-8, at most 1 MiB, no duplicate keys),
-terminated by `\n`. A trailing `\r` is ignored, blank lines are skipped, and an
-unterminated last line is answered at end of input.
+Each request is one line of strict JSON (UTF-8, at most 16 MiB, no duplicate
+keys), terminated by `\n`. `decide`/`validateDecision` use the new 16 MiB request
+cap; ordinary operations still enforce a 1 MiB encoded/schema cap. The wider
+framing ceiling does not widen legacy `Codec` or `jev`. A trailing `\r` is
+ignored, blank lines are skipped, and an unterminated last line is answered at
+end of input.
 
 ```json
 {"id":1,"op":"exec","argv":["/bin/echo","hi"]}
@@ -76,10 +81,11 @@ Protocol 2 answers requests concurrently. **Responses may arrive in any order;
 match them by `id`.** Give every request that is in flight at the same time a
 distinct `id`.
 
-- Every response is written as one whole line, however long (up to the 1 MiB
-  capture bound); lines never interleave.
+- Every response is written as one whole line; lines never interleave. Decision
+  results have a 16 MiB encoded cap (including raw-data duplication/escaping);
+  ordinary CLI-child captures remain capped at 1 MiB.
 - A request that blocks (`wait`, `watch`, `events` or `read` with `waitMs`, `exec`,
-  `jev`, a slow `start` or `spawn`) never holds up another request.
+  `jev`, `decide`, a slow `start` or `spawn`) never holds up another request.
 - `write` and `closeInput` for an interactive durable job are queued by the
   session as they arrive, so they too apply in arrival order; the job's worker
   drains its queue every 25 ms.
@@ -88,9 +94,10 @@ distinct `id`.
   accepted by its stdin. A `stop` of that child takes effect after every write and
   close that arrived before it has started, without waiting for a write the child
   is not reading (that write then fails).
-- `jev` requests share the session's one client, so they run one at a time, in
-  arrival order. Other requests do not wait for them.
-- `validate` and `capabilities` are answered at once, in arrival order.
+- `jev` and `decide` share the session's one client and budget, so they run one
+  at a time, in arrival order. Other requests do not wait for them.
+- `validate`, `validateDecision`, `decisionProviders` and `capabilities` are
+  offline operations answered at once, in arrival order.
 - There is no other ordering between requests. A client that sends one request
   and waits for its response before the next sees exactly the protocol 1 behaviour.
 
@@ -126,7 +133,11 @@ Error codes follow the CLI:
 | `list` | `scope?` | `{"jobs": [...], "truncated": bool}` |
 | `capabilities` | none | As `jev-fabric -- capabilities` |
 | `validate` | `request` | The validated Jev request, offline |
-| `jev` | `request`, `timeoutMs?`, `provider?`, `credential?` | The validated Jev answer: `model`, `answers`, `usage` |
+| `jev` | `request`, `timeoutMs?`, `provider?`, `credential?` | The validated legacy Jev answer: `model`, `answers`, `usage` |
+| `validateDecision` | `request` | Structurally validated additive decision request, offline |
+| `decide` | `request`, `timeoutMs?`, `credential?` | Lossless decision result; inspect `status` and `budget` |
+| `decisionProviders` | none | Registered preset definitions, offline; not live model discovery |
+| `resolveDecision` | `request` | Resolved target and adapter preflight, offline; requires `decision-targets` |
 
 - `argv` is a literal array of 1..57 strings (the 64-entry process limit less the
   CLI prefix). Each entry is at most 4096 UTF-8 bytes. `argv[0]` must be non-empty.
@@ -143,7 +154,7 @@ Error codes follow the CLI:
   Defaults: `exec` runs until the session deadline; `start` uses the work
   default (1 hour) for the job's own lifetime; `spawn` lives until the session
   ends; `wait` and `watch` use `JEV_FABRIC_WAIT_MS` (30 s) and
-  `JEV_FABRIC_WATCH_MS` (5 s); `jev` uses the client's `JEV_FABRIC_JEV_TIMEOUT_MS`
+  `JEV_FABRIC_WATCH_MS` (5 s); `jev` and `decide` use the client's `JEV_FABRIC_JEV_TIMEOUT_MS`
   (30 s).
 - `label` is 1..120 printable Unicode characters on one line, as `start --label`.
   It is reported as `"label"` by `status`, `wait`, `stop` and `list`.
@@ -166,7 +177,8 @@ Error codes follow the CLI:
 - `scope` is `"store"` (the default: the storage root's jobs, as the CLI's `list`)
   or `"session"` (this connection's session children, each with
   `"lifetime":"session"`). The store listing never includes session children.
-- `request` is a Jev request object, validated exactly as `jev-fabric -- validate`.
+- `request` for `jev`/`validate` is validated as `jev-fabric -- validate`. For
+  `decide`/`validateDecision`, use the [additive decision schema](decisions.md#request).
 - `provider` (`"typesafe"`, `"openrouter"` or `"vercel"`) and `credential` (a
   non-empty string) apply to one `jev` request only; see [Jev](#jev).
 
@@ -231,14 +243,16 @@ ceilings, not delays: completion returns immediately.
 
 The session's reader frames stdin into lines and hands them to one coordinating
 fiber, which owns the Jev client and the session children. It answers
-`validate` and `capabilities` itself and starts a fiber for every other
+`validate`, `validateDecision`, `decisionProviders` and `capabilities` itself
+and starts a fiber for every other
 request; each fiber prints its own response. Only Bend's event loop prints, so
 a response line is always written whole.
 
 `jev` runs inside the session process, threading one affine `Jev.Client`
 through every call, as a Bend program does. Its credential is resolved on the
 first call and cached in that client, and HTTPS keeps its pooled TLS connection
-between calls.
+between calls. `decide` threads the same client/budget but resolves its own
+ephemeral credential and uses the private decision transport.
 
 `read`, `write`, `closeInput`, `list` with `"scope":"session"` and `spawn` run in
 process (for durable jobs as for session children): `read` opens its own reader on the child's rolling spool, so it never
@@ -262,11 +276,65 @@ session's provider. The request is validated before the credential is used, the
 call and token budget stay session-wide, and a malformed credential is refused
 with the same fixed message as any other (`Invalid private credential`).
 
+## Decision targets
+
+Feature `decision-targets` adds `resolveDecision`, request `profile` selection,
+and the portable profile document described in [decision targets](decision-targets.md).
+`resolveDecision` uses the same routing and adapter checks as dispatch but never
+retrieves credentials or spends the evaluation/token budget. Its result contains
+`target`, `credential: {env, resolved:false}`, `imageSupport`, `generated`, and
+optional `profile`, not the input state, images or request body.
+
+Profiles come from explicit `DECISION_PROFILES` JSON or
+`DECISION_PROFILES_FILE`; no repository file is auto-discovered. Named client
+views bind a resolved target on first successful use, then reuse the same
+connection and remaining budget. Invalid defaults/profiles fail closed.
+
+## Additive decisions
+
+Feature `decisions` adds `decide`, `validateDecision` and `decisionProviders`;
+legacy `jev` remains strict about distributions and requires both usage
+counters. Decision routing (`provider`, `api`, `model`, `endpoint`, opt-ins and
+provider options) goes **inside `request`**. `credential`, if supplied, is a
+nonempty private per-request string alongside it, never cached.
+
+```json
+{"id":1,"op":"decisionProviders"}
+{"id":2,"op":"validateDecision","request":{"provider":"typesafe","state":"Tests passed","questions":{"ready":{"type":"boolean","instructions":"Ready to proceed?"}}}}
+{"id":3,"op":"decide","timeoutMs":30000,"request":{"provider":"typesafe","state":"Tests passed","questions":{"ready":{"type":"boolean","instructions":"Ready to proceed?"}}}}
+```
+
+The last line is an explicit model call. `validateDecision` checks the request
+schema only, not provider availability, credentials or every adapter constraint.
+Discovery returns registered definitions, not an account-specific model list.
+
+Two success layers matter: preflight/credential/HTTP failures produce `ok:false`
+(client methods throw), but malformed successful provider responses produce
+`ok:true` with `result.status:"error"`, error details, raw provider text and
+usage. Local multi-request readouts also retain post-dispatch failures in error
+results. Inspect `result.status` before using answers. `rawJson` preserves
+provider numeric spelling even when a client's JSON parser rounds `raw`.
+Per-question refusals retain successful siblings; absent distributions and
+confidence are never fabricated.
+
+Accounting happens before answer validation. Missing/invalid usage and uncertain
+dispatch conservatively exhaust the remaining **shared** budget. A reported
+token overshoot returns the original result marked
+`budget:{exhausted:true,reason:'reported-token-limit'}`, then blocks later
+`jev` and `decide` calls. Zero limits, invalid preflight and credential failures
+do not dispatch. No automatic HTTP retries occur; explicit gateway fallback
+options can bill multiple stages.
+
+Methods: TypeScript `Fabric.decide`, `validateDecision`, `decisionProviders`;
+Python `Fabric.decide`, `validate_decision`, `decision_providers`. See
+[Lossless decisions](decisions.md) for requests, provider options, image limits,
+transport prerequisites and exact-number readers.
+
 ## Boundaries
 
 - Trusted native execution, not a sandbox. `serve` runs commands with the
   caller's privileges, like the CLI.
-- Nothing calls Jev implicitly: only a `jev` request does.
+- Nothing calls a model implicitly: only explicit `jev` or `decide` requests do.
 - Output is bounded exactly as in the CLI (32 KiB receipt tails, 64 retained
   events, `watch` limits, 1 MiB rolling windows for session children). Each CLI
   step's stdout is also capped at 1 MiB.

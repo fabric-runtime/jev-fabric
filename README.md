@@ -159,6 +159,26 @@ jev-fabric -- jev examples/native/request.json 10000         # one billed call
   pooled TLS connection: verified certificates, no redirects, no proxies, 1 MiB
   bound. `JEV_FABRIC_HTTP=exec` forces a fresh `curl` process per request.
 
+## Additive lossless decisions
+
+`decide` supports native decision APIs, opt-in generated estimates and local
+token-logprob readouts without changing legacy `jev`. Results retain provider
+JSON (`rawJson` preserves exact numeric text), refusals and provenance; missing
+distributions are never invented. It uses private curl **7.82+**, not pooled
+legacy HTTPS.
+
+```sh
+jev-fabric -- decision-providers                 # registered presets, not live availability
+jev-fabric -- validate-decision request.json      # offline schema check
+jev-fabric -- decide --timeout-ms 30000 request.json 10000 # authorized model call
+```
+
+Inspect `status` and `budget`: `jev` and `decide` share the session budget. See
+[Lossless decisions](docs/decisions.md) for provider/image support, credentials,
+exact-number readers and Python/TypeScript examples. [Decision targets and
+profiles](docs/decision-targets.md) adds portable named targets, offline
+`resolve-decision`, CLI model flags and immutable client views sharing one budget.
+
 ## Sessions from Python or TypeScript
 
 `jev-fabric -- serve` keeps one process open and speaks JSONL on stdin/stdout:

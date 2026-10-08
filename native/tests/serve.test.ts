@@ -103,7 +103,7 @@ async function session(args: string[] = [], env: Env = {}) {
 test('serve announces its protocol, version, deadline, budgets and capabilities', async () => {
   const { s, banner } = await session(['--timeout-ms', '60000', '3', '500']);
   expect(banner.ready).toMatchObject({
-    protocol: 2, version: '0.5.1-native', timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500, store: 1,
+    protocol: 2, version: '0.6.0-native', timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500, store: 1,
   });
   expect(Object.keys(banner.ready)).toEqual([
     'protocol', 'version', 'timeoutMs', 'maxEvaluations', 'maxTokens', 'store', 'platform', 'features',
@@ -232,11 +232,11 @@ test('framing: blank lines are skipped, CRLF is accepted, a final unterminated l
 
 test('an oversized partial line ends the session instead of desynchronizing', async () => {
   const { s } = await session();
-  s.send('{"id":1,"op":"exec","argv":["' + 'x'.repeat(1048600));
-  expect(await s.line()).toMatchObject({ id: null, ok: false, error: { code: 2, message: 'request line exceeds 1 MiB' } });
+  s.send('{"id":1,"op":"exec","argv":["' + 'x'.repeat(16777240));
+  expect(await s.line()).toMatchObject({ id: null, ok: false, error: { code: 2, message: 'request line exceeds 16 MiB' } });
   const { code, err } = await s.close();
   expect(code).toBe(2);
-  expect(err).toContain('request line exceeds 1 MiB');
+  expect(err).toContain('request line exceeds 16 MiB');
 });
 
 test('validate runs in process with the strict Jev request contract', async () => {
@@ -331,6 +331,77 @@ function jevEnv(extra: Env = {}): Env & { CURL_RECORD: string; CREDENTIAL_RECORD
   };
 }
 const record = (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
+
+test('resolveDecision is offline, sanitized and independent of session evaluation budgets', async () => {
+  const env = jevEnv({
+    DECISION_PROFILES: JSON.stringify({ version: 1, defaultProfile: 'direct', profiles: { direct: { provider: 'openai', model: 'profile-model' } } }),
+    DECISION_CREDENTIAL_COMMAND: JSON.stringify(['/bin/sh', join(root, 'credential.sh')]),
+  });
+  const { s, banner } = await session(['1', '1000'], env);
+  expect(banner.ready.features).toContain('decision-targets');
+  const expected = {
+    target: { provider: 'openai', api: 'openai-decisions', model: 'profile-model', endpoint: 'https://api.openai.com/v1/decisions', allowLocal: false, allowGenerated: false },
+    credential: { env: 'OPENAI_API_KEY', resolved: false }, imageSupport: 'supported', generated: false, profile: 'direct',
+  };
+  for (const id of [1, 2]) expect(await s.ask({ id, op: 'resolveDecision', request: noul })).toEqual({ id, ok: true, result: expected });
+  expect(record(env.CREDENTIAL_RECORD)).toBe('');
+  expect(record(env.CURL_RECORD)).toBe('');
+  expect((await s.ask({ id: 3, op: 'jev', request: noul })).ok).toBe(true);
+  expect((await s.ask({ id: 4, op: 'jev', request: noul })).ok).toBe(false);
+  expect((await s.ask({ id: 5, op: 'resolveDecision', request: noul })).result).toEqual(expected);
+  expect(record(env.CREDENTIAL_RECORD)).toBe('x');
+  expect(record(env.CURL_RECORD)).toBe('x');
+  expect(await s.close()).toEqual({ code: 0, err: '' });
+});
+
+test('decide consumes profiles before wire validation and shares offline preflight without spending invalid calls', async () => {
+  const env = jevEnv({ DECISION_PROFILES: JSON.stringify({ version: 1, profiles: { direct: { provider: 'typesafe' } } }) });
+  const { s } = await session(['1', '1000'], env);
+  const request = { ...noul, profile: 'direct' };
+  const offline = await s.ask({ id: 1, op: 'resolveDecision', request });
+  expect(offline.ok).toBe(true);
+  for (const op of ['resolveDecision', 'decide']) {
+    const rejected = await s.ask({ id: op, op, request: { ...request, provider: 'openai' } });
+    expect(rejected.ok).toBe(false);
+    expect(rejected.error.message).toContain('conflicts');
+  }
+  expect(record(env.CREDENTIAL_RECORD)).toBe('');
+  expect(record(env.CURL_RECORD)).toBe('');
+  const answer = await s.ask({ id: 2, op: 'decide', request, credential: requestKey });
+  expect(answer.ok).toBe(true);
+  expect(answer.result.provider).toBe(offline.result.target.provider);
+  expect(record(env.CREDENTIAL_RECORD)).toBe('');
+  expect(record(env.CURL_RECORD)).toBe('r');
+  expect((await s.ask({ id: 3, op: 'decide', request, credential: requestKey })).ok).toBe(false);
+  expect(await s.close()).toEqual({ code: 0, err: '' });
+});
+
+test('malformed profiles do not affect legacy jev or structural validateDecision', async () => {
+  const env = jevEnv({ DECISION_PROFILES: '{' });
+  const { s } = await session([], env);
+  const request = { ...noul, profile: 'not-configured' };
+  expect((await s.ask({ id: 1, op: 'validateDecision', request })).result).toEqual(request);
+  expect((await s.ask({ id: 2, op: 'resolveDecision', request })).ok).toBe(false);
+  expect((await s.ask({ id: 3, op: 'jev', request: noul })).ok).toBe(true);
+  expect(record(env.CURL_RECORD)).toBe('x');
+  expect(await s.close()).toEqual({ code: 0, err: '' });
+});
+
+test('resolve-decision CLI applies flags without credentials and rejects duplicate flags', async () => {
+  const path = join(root, 'resolve-request.json');
+  writeFileSync(path, JSON.stringify({ ...noul, provider: 'typesafe', model: 'file-model' }));
+  const env = jevEnv({ DECISION_CREDENTIAL_COMMAND: JSON.stringify(['/bin/sh', join(root, 'credential.sh')]) });
+  const resolved = await capture([nativeBin, '--', 'resolve-decision', '--provider', 'openai', '--model', 'flag-model', path], { env });
+  expect(resolved.code, resolved.err).toBe(0);
+  expect(JSON.parse(resolved.out).target).toMatchObject({ provider: 'openai', model: 'flag-model' });
+  expect(record(env.CREDENTIAL_RECORD)).toBe('');
+  expect(record(env.CURL_RECORD)).toBe('');
+  for (const command of ['decide', 'resolve-decision']) {
+    const duplicate = await capture([nativeBin, '--', command, '--model', 'a', '--model', 'b', path], { env });
+    expect(duplicate.code).not.toBe(0);
+    expect(duplicate.err).toContain('Duplicate');
+  }
+});
 
 test('jev threads one client: one credential lookup, a session-wide call budget', async () => {
   const env = jevEnv();

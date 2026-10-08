@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "defaultProfile": "fast",
+  "profiles": {
+    "fast": { "provider": "typesafe", "model": "jev-latest" },
+    "vision": { "provider": "openai", "model": "gpt-6-luna" },
+    "local": { "provider": "llama.cpp", "model": "local", "allowLocal": true }
+  }
+}

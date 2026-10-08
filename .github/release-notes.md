@@ -1,11 +1,20 @@
 Native process orchestration with typed, explicit Jev decisions.
 
-## Changes in 0.5.1
+## Changes in 0.6.0
 
-- Update the audited compiler and CI archive checksums to Bend 2.0.36.
-- Adapt native effect registrations, channel send results, and internal names
-  to the new Base API, including the shipped browser/game examples.
-- Keep the public CLI, protocol 2, store format 1, and wire operations unchanged.
+- Add lossless `decide` results across native decision, gateway, local llama.cpp,
+  and explicitly opted-in generated-decision protocols. Preserve raw evidence,
+  distributions, refusals, provenance and unknown usage rather than inventing it.
+- Support inline images on verified image-capable routes; reject unsupported
+  combinations before credentials or dispatch.
+- Add portable named profiles, immutable TypeScript/Python target handles,
+  offline `resolve-decision` preflight and CLI target-selection flags.
+- Keep model switches within the same session and shared evaluation/token budget.
+  Explicit targets do not inherit another provider's ambient model or endpoint.
+- Add checked universal decision-policy laws, retain foreign/serialization/host
+  boundary tests, and consolidate pure-policy fixture compilation.
+- Preserve legacy `jev` behavior, protocol 2 and store format 1. New operations
+  are advertised through capability negotiation. Requires Bend 2.0.36 to compile.
 
 ## Install
 

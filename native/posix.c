@@ -15,9 +15,9 @@ extern char **environ;
 #define JF_JOBS 32
 #define JF_ARG_BYTES 4096
 #define JF_SPOOL_LIMIT 1048576
-#define JF_LIMIT_MAX 1048580
+#define JF_LIMIT_MAX 16777220
 #define JF_TEXT_INPUT_MAX 131072u
-#define JF_BYTES_INPUT_MAX 4194304u
+#define JF_BYTES_INPUT_MAX 67108864u
 #define JF_TIMEOUT_MAX_MS 3600000
 // Only exec_logged and rolling exec_pipe, the job and session workers' effects, accept a day.
 #define JF_JOB_TIMEOUT_MAX_MS 86400000

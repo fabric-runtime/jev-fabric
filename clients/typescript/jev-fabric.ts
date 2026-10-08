@@ -40,6 +40,8 @@ export interface FabricOptions {
   maxEvaluations?: number;
   /** Reported Jev tokens for the whole session; defaults to 100000. */
   maxTokens?: number;
+  /** Non-secret routing profiles, snapshotted into DECISION_PROFILES at startup. */
+  decisionProfiles?: DecisionProfiles;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
 }
@@ -158,6 +160,107 @@ export interface MonitorRecord {
   [field: string]: unknown;
 }
 
+export type DecisionJSON = null | boolean | number | string | DecisionJSON[] | { [key: string]: DecisionJSON };
+export type DecisionDescription = string | DecisionJSON[] | { [key: string]: DecisionJSON };
+export type DecisionQuestion =
+  | { type: 'choice'; instructions: DecisionDescription; criteria: Record<string, DecisionDescription | null> }
+  | { type: 'score'; instructions: DecisionDescription; criteria: DecisionDescription[] }
+  | { type: 'boolean' | 'bool' | 'noul' | 'predicate'; instructions: DecisionDescription; criteria?: { true?: DecisionDescription; false?: DecisionDescription } };
+export type DecisionAPI = 'system-one' | 'cloudflare' | 'openai-decisions' | 'vercel-evaluate' | 'llama-cpp' | 'llama-system-one' | 'anthropic' | 'google';
+export interface DecisionProvider {
+  provider: string;
+  api: DecisionAPI | '';
+  defaultModel: string;
+  endpoint: string;
+  credentialEnv: string;
+  imageSupport: 'supported' | 'model-dependent' | 'unsupported';
+  generated: boolean;
+}
+export interface DecisionTarget {
+  provider: string;
+  api?: DecisionAPI;
+  model?: string;
+  endpoint?: string;
+  allowLocal?: boolean;
+  allowGenerated?: boolean;
+  providerOptions?: Record<string, DecisionJSON>;
+  temperature?: number;
+}
+export interface DecisionProfiles {
+  version: 1;
+  defaultProfile?: string;
+  profiles: Record<string, DecisionTarget>;
+}
+export interface DecisionResolution {
+  target: {
+    provider: string;
+    api: DecisionAPI;
+    model: string;
+    endpoint: string;
+    allowLocal: boolean;
+    allowGenerated: boolean;
+    providerOptions?: Record<string, DecisionJSON>;
+    temperature?: number;
+  };
+  credential: { env: string; resolved: false };
+  imageSupport: 'supported' | 'unsupported' | 'model-dependent';
+  generated: boolean;
+  profile?: string;
+}
+export type DecisionEvidence = Pick<DecisionRequest, 'state' | 'questions' | 'images'>;
+export interface DecisionCallOptions { timeoutMs?: number; credential?: string }
+type FrozenDecisionJSON = null | boolean | number | string | readonly FrozenDecisionJSON[] | { readonly [key: string]: FrozenDecisionJSON };
+export type DecisionTargetSnapshot = Readonly<Omit<DecisionTarget, 'providerOptions'>> & {
+  readonly providerOptions?: { readonly [key: string]: FrozenDecisionJSON };
+};
+/** A non-owning view: no close/open, no credentials retained, one parent budget. */
+export interface DecisionTargetView {
+  readonly target: DecisionTargetSnapshot | string;
+  decide(evidence: DecisionEvidence, options?: DecisionCallOptions): Promise<DecisionResult>;
+  resolveDecision(evidence: DecisionEvidence): Promise<DecisionResolution>;
+}
+export interface DecisionRequest {
+  profile?: string;
+  state: string | DecisionJSON[] | { [key: string]: DecisionJSON };
+  questions: Record<string, DecisionQuestion>;
+  provider?: string;
+  api?: DecisionAPI;
+  model?: string;
+  /** Explicit endpoint override. Hosted endpoints require HTTPS. */
+  endpoint?: string;
+  images?: { type?: 'image'; data: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' }[];
+  /** Permit plain HTTP only to literal loopback addresses. */
+  allowLocal?: boolean;
+  /** Required for prompted Anthropic/Gemini estimates, not native decision probabilities. */
+  allowGenerated?: boolean;
+  providerOptions?: Record<string, DecisionJSON>;
+  temperature?: number;
+}
+export type DecisionAnswer =
+  | { type: 'boolean'; probability: number }
+  | { type: 'choice'; choice: string; probabilities?: Record<string, number>; confidence?: number }
+  | { type: 'score'; score: number; probabilities?: Record<string, number>; confidence?: number; legend?: Record<string, DecisionDescription> }
+  | { type: 'refusal'; [field: string]: unknown };
+export interface DecisionResult {
+  status: 'ok' | 'error';
+  provider: string;
+  api: DecisionAPI;
+  model: string;
+  answers: Record<string, DecisionAnswer>;
+  usage: { input_tokens: number | null; output_tokens: number | null };
+  provenance?: { kind: 'native' | 'generated' | 'token-logprobs'; [field: string]: unknown };
+  /** Original values. JavaScript numbers have normal JSON.parse precision limits. */
+  raw?: DecisionJSON;
+  /** Original provider JSON; use an exact-number parser when precision matters. */
+  rawJson?: string;
+  rawText?: string;
+  rawComplete?: boolean;
+  /** HTTP status of a direct exchange; local adapters retain it per raw entry. */
+  httpStatus?: number;
+  error?: { code: number; message: string } | null;
+  budget: { exhausted: boolean; reason: string };
+}
+
 export type JevRequest = Record<string, unknown>;
 export type JevAnswer = {
   model?: string;
@@ -180,6 +283,90 @@ export class FabricError extends Error {
     this.code = code;
     this.op = op;
   }
+}
+
+const decisionAPIs: readonly DecisionAPI[] = ['system-one', 'cloudflare', 'openai-decisions', 'vercel-evaluate', 'llama-cpp', 'llama-system-one', 'anthropic', 'google'];
+const targetFields = ['provider', 'api', 'model', 'endpoint', 'allowLocal', 'allowGenerated', 'providerOptions', 'temperature'];
+const secretField = (key: string): boolean => /secret|password|credential|apikey|authorization/.test(key.toLowerCase().replace(/[^a-z0-9]/g, '')) || ['auth', 'headers', 'token', 'accesstoken', 'refreshtoken', 'privatekey'].includes(key.toLowerCase().replace(/[^a-z0-9]/g, ''));
+function invalidConfig(): never { throw new TypeError('Invalid decision target/profile: expected non-secret, finite JSON with only supported fields'); }
+function objectFields(value: unknown, allowed?: string[]): asserts value is Record<string, any> {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) invalidConfig();
+  if (allowed && Object.keys(value).some(key => !allowed.includes(key))) invalidConfig();
+}
+/** Descriptor-based copy rejects getters, toJSON, exotic objects, cycles and lossy JSON. */
+function cloneJSON(value: unknown, seen = new Set<object>(), depth = 0, rejectSecrets = false): DecisionJSON {
+  if (depth > 64) invalidConfig();
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value || typeof value !== 'object' || seen.has(value)) invalidConfig();
+  seen.add(value);
+  const array = Array.isArray(value);
+  if (!array) objectFields(value);
+  const result: any = array ? [] : {};
+  for (const key of Reflect.ownKeys(value)) {
+    if (array && key === 'length') continue;
+    if (typeof key !== 'string' || (rejectSecrets && secretField(key))) invalidConfig();
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (!descriptor.enumerable || !('value' in descriptor) || (array && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= (value as unknown[]).length))) invalidConfig();
+    Object.defineProperty(result, key, { value: cloneJSON(descriptor.value, seen, depth + 1, rejectSecrets), enumerable: true, writable: true, configurable: true });
+  }
+  if (array && Object.keys(result).length !== (value as unknown[]).length) invalidConfig();
+  seen.delete(value);
+  return result;
+}
+function freezeJSON<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) freezeJSON(item);
+    Object.freeze(value);
+  }
+  return value;
+}
+function profileName(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_.-]{1,128}$/.test(value) || ['__proto__', 'prototype', 'constructor'].includes(value)) invalidConfig();
+  return value;
+}
+function validateTarget(value: unknown): DecisionTarget {
+  const target: unknown = cloneJSON(value, new Set(), 0, true);
+  objectFields(target, targetFields);
+  if (!Object.hasOwn(target, 'provider') || typeof target.provider !== 'string' || !target.provider.trim()) invalidConfig();
+  for (const key of ['provider', 'api', 'model', 'endpoint']) {
+    if (Object.hasOwn(target, key) && (typeof target[key] !== 'string' || !target[key] || /[\x00-\x1f\x7f]/.test(target[key]))) invalidConfig();
+  }
+  if (Object.hasOwn(target, 'api') && !decisionAPIs.includes(target.api)) invalidConfig();
+  if (typeof target.model === 'string' && (Array.from(target.model).length > 256 || /[\uD800-\uDFFF]/u.test(target.model))) invalidConfig();
+  for (const key of ['allowLocal', 'allowGenerated']) if (Object.hasOwn(target, key) && typeof target[key] !== 'boolean') invalidConfig();
+  if (Object.hasOwn(target, 'temperature') && (typeof target.temperature !== 'number' || target.temperature < 0 || target.temperature > 2)) invalidConfig();
+  if (Object.hasOwn(target, 'providerOptions')) objectFields(target.providerOptions);
+  if (Object.hasOwn(target, 'endpoint')) {
+    // Match native structural policy on the raw URL, before any URL normalization.
+    // Exact loopback HTTP is a valid shape; selected preflight requires allowLocal.
+    const endpoint = target.endpoint as string;
+    const match = /^(https?):\/\/([A-Za-z0-9.-]+|\[::1\])(?::([0-9]+))?(?:\/[^]*)?$/.exec(endpoint);
+    if (!match || /[^\x21-\x7e]|[?#\\]/.test(endpoint) || Array.from(endpoint).length > 4096 ||
+      (match[3] !== undefined && (+match[3] < 1 || +match[3] > 65535)) ||
+      (match[1] !== 'https' && !['127.0.0.1', '[::1]'].includes(match[2]!))) invalidConfig();
+  }
+  return target as unknown as DecisionTarget;
+}
+function validateResolvedTarget(value: unknown): DecisionResolution['target'] {
+  const target = validateTarget(value);
+  for (const key of ['provider', 'api', 'model', 'endpoint', 'allowLocal', 'allowGenerated']) {
+    if (!Object.hasOwn(target, key)) invalidConfig();
+  }
+  if (!decisionAPIs.includes(target.api!)) invalidConfig();
+  return target as DecisionResolution['target'];
+}
+function serializeProfiles(value: DecisionProfiles): string {
+  const doc: unknown = cloneJSON(value);
+  objectFields(doc, ['version', 'defaultProfile', 'profiles']);
+  if (!Object.hasOwn(doc, 'version') || doc.version !== 1 || !Object.hasOwn(doc, 'profiles')) invalidConfig();
+  objectFields(doc.profiles);
+  if (Object.keys(doc.profiles).length > 128) invalidConfig();
+  for (const [name, target] of Object.entries(doc.profiles)) { profileName(name); validateTarget(target); }
+  if (Object.hasOwn(doc, 'defaultProfile') && !Object.hasOwn(doc.profiles, profileName(doc.defaultProfile))) invalidConfig();
+  const text = JSON.stringify(doc);
+  if (Buffer.byteLength(text, 'utf8') > 65536) invalidConfig();
+  return text;
 }
 
 interface Pending {
@@ -218,13 +405,15 @@ export class Fabric {
   }
 
   static async open(options: FabricOptions = {}): Promise<Fabric> {
+    const profiles = options.decisionProfiles === undefined ? undefined : serializeProfiles(options.decisionProfiles);
+    const env = profiles === undefined ? options.env : { ...(options.env ?? process.env), DECISION_PROFILES: profiles };
     const binary = options.binary ?? process.env.JEV_FABRIC_BIN ?? 'jev-fabric';
     const argv = ['--', 'serve'];
     if (options.timeoutMs !== undefined) argv.push('--timeout-ms', String(options.timeoutMs));
     const maxEvaluations = options.maxEvaluations ?? (options.maxTokens !== undefined ? 1 : undefined);
     if (maxEvaluations !== undefined) argv.push(String(maxEvaluations));
     if (options.maxTokens !== undefined) argv.push(String(options.maxTokens));
-    const child = spawn(binary, argv, { env: options.env, cwd: options.cwd, stdio: 'pipe' });
+    const child = spawn(binary, argv, { env, cwd: options.cwd, stdio: 'pipe' });
     // serve writes to stderr only when it exits abnormally; keep it for the error.
     const log = { text: '' };
     child.stderr.setEncoding('utf8');
@@ -245,7 +434,14 @@ export class Fabric {
       child.stdin.end();
       throw new FabricError(1, `unsupported serve protocol: ${first.value}`);
     }
-    return new Fabric(child, banner.ready, lines, exited, log);
+    const fabric = new Fabric(child, banner.ready, lines, exited, log);
+    if (profiles !== undefined) {
+      try { fabric.requireDecisionTargets(); } catch (error) {
+        await fabric.close();
+        throw error;
+      }
+    }
+    return fabric;
   }
 
   // -- processes -------------------------------------------------------------
@@ -367,6 +563,96 @@ export class Fabric {
   }
 
   // -- Jev -------------------------------------------------------------------
+
+  /** Offline registered presets, not a live catalog or credential availability check. */
+  decisionProviders(): Promise<DecisionProvider[]> {
+    return this.call('decisionProviders', {});
+  }
+
+  /** Validate the additive decision request format without retrieving credentials. */
+  async validateDecision(request: DecisionRequest): Promise<DecisionRequest> {
+    if ('profile' in request) {
+      this.requireDecisionTargets();
+      if (!Object.hasOwn(request, 'profile')) invalidConfig();
+      profileName(request.profile);
+    }
+    return this.call('validateDecision', { request });
+  }
+
+  /** One explicit decision against the shared Jev/decision budget. Inspect result.status. */
+  async decide(request: DecisionRequest, options: DecisionCallOptions = {}): Promise<DecisionResult> {
+    if ('profile' in request) {
+      this.requireDecisionTargets();
+      if (!Object.hasOwn(request, 'profile')) invalidConfig();
+      profileName(request.profile);
+    }
+    return this.call('decide', { request, timeoutMs: options.timeoutMs, credential: options.credential });
+  }
+
+  /** Resolve routing offline; credentials are named, never retrieved. */
+  async resolveDecision(request: DecisionRequest): Promise<DecisionResolution> {
+    this.requireDecisionTargets();
+    if ('profile' in request) {
+      if (!Object.hasOwn(request, 'profile')) invalidConfig();
+      profileName(request.profile);
+    }
+    return this.call('resolveDecision', { request });
+  }
+
+  /** Snapshot routing, not evidence or credentials; reuse this exact session. */
+  withDecisionTarget(target: DecisionTarget | string): DecisionTargetView {
+    this.requireDecisionTargets();
+    const bound = typeof target === 'string' ? profileName(target) : freezeJSON(validateTarget(target));
+    if (typeof bound !== 'string') {
+      const request = (evidence: DecisionEvidence): DecisionRequest => {
+        const copy = cloneJSON(evidence) as unknown as DecisionEvidence;
+        objectFields(copy, ['state', 'questions', 'images']);
+        return { ...copy, ...cloneJSON(bound) as unknown as DecisionTarget };
+      };
+      return Object.freeze({
+        get target() { return freezeJSON(cloneJSON(bound) as unknown as DecisionTarget); },
+        decide: async (evidence: DecisionEvidence, options?: DecisionCallOptions) => this.decide(request(evidence), options),
+        resolveDecision: async (evidence: DecisionEvidence) => this.resolveDecision(request(evidence)),
+      });
+    }
+    let resolved: DecisionTarget | undefined;
+    let binding: Promise<DecisionTarget> | undefined;
+    const prepare = async (evidence: DecisionEvidence) => {
+      const copy = cloneJSON(evidence) as unknown as DecisionEvidence;
+      objectFields(copy, ['state', 'questions', 'images']);
+      // Only the caller that starts binding keeps its resolution envelope, and
+      // only until this call returns. The shared promise carries routing alone.
+      let resolution: DecisionResolution | undefined;
+      if (typeof bound === 'string' && !resolved) {
+        if (!binding) {
+          binding = this.resolveDecision({ ...copy, profile: bound }).then(result => {
+            resolved = freezeJSON(validateResolvedTarget(result.target));
+            resolution = result;
+            return resolved;
+          });
+        }
+        const pending = binding;
+        try { await pending; }
+        finally { if (binding === pending) binding = undefined; }
+      }
+      const routing = typeof bound === 'string' ? resolved! : bound;
+      return { request: { ...copy, ...cloneJSON(routing) as unknown as DecisionTarget }, resolution };
+    };
+    return Object.freeze({
+      get target() { return typeof bound === 'string' ? bound : freezeJSON(cloneJSON(bound) as unknown as DecisionTarget); },
+      decide: async (evidence: DecisionEvidence, options?: DecisionCallOptions) => this.decide((await prepare(evidence)).request, options),
+      resolveDecision: async (evidence: DecisionEvidence) => {
+        const { request, resolution } = await prepare(evidence);
+        return resolution ?? this.resolveDecision(request);
+      },
+    });
+  }
+
+  private requireDecisionTargets(): void {
+    if (!this.ready.features?.includes('decision-targets')) {
+      throw new FabricError(1, 'decision-targets requires an updated jev-fabric binary; update jev-fabric');
+    }
+  }
 
   /** Strictly validates a Jev request offline, without credentials. */
   validate(request: JevRequest): Promise<JevRequest> {

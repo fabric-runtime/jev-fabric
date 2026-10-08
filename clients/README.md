@@ -17,7 +17,14 @@ on PATH, and require protocol 2 in the banner.
 
 Both expose the same operations: `exec`, `start`, `spawn`, `write`,
 `closeInput` (`close_input` in Python), `read`, `status`, `events`, `wait`,
-`stop`, `watch`, `list`, `capabilities`, `validate`, `jev` and `close`. A refused
+`stop`, `watch`, `list`, `capabilities`, `validate`, `jev`, `decide`,
+`validateDecision` (`validate_decision`), `decisionProviders` (`decision_providers`),
+`resolveDecision` (`resolve_decision`) and `close`. Portable profile documents and
+immutable `withDecisionTarget` (`with_decision_target`) views select models without
+opening another connection or resetting the budget; see [decision targets](../docs/decision-targets.md).
+These additions require the `decision-targets` feature. [Decisions](../docs/decisions.md) supports inline images, explicit
+provider capabilities and exact `rawJson` evidence. Inspect `result.status` for
+provider answer failures. `jev` and `decide` share one serialized budget. A refused
 request raises `FabricError` with the protocol's `code` and `message`. Examples:
 [`examples/clients/`](../examples/clients/).
 

@@ -70,12 +70,14 @@ test('transitive helper contamination is rejected rather than just scanning root
   f.manifest.pure.push('native/Helper.bend');
   expect(() => auditSources(f.sources, f.manifest)).toThrow(/pure closure reaches/);
 });
-test('native safe encoder fuel and pure effect gates execute as specified', () => {
-  expectFixture('policy-core');
-  const result = Bun.spawnSync([resolve('build/test-policy-core')], { stdout: 'pipe', stderr: 'pipe' });
+test('compiled pure policies preserve runtime representations and boundary checks', () => {
+  expectFixture('policy-checks', 180000);
+  const result = Bun.spawnSync([resolve('build/test-policy-checks')], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode, result.stderr.toString()).toBe(0);
+  expect(result.stdout.toString()).toContain('native core assertions: 23');
   expect(result.stdout.toString()).toContain('native safe policy assertions: 10');
-}, 100000);
+  expect(result.stdout.toString()).toContain('native timer policy assertions: 54');
+}, 190000);
 
 test('compiler trust warnings and incomplete verdicts fail in the pure proof closure', () => {
   const clean = 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.\n';

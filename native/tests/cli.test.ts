@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import manifest from '../../package.json';
 import { capture, jsonLines, nativeBin, tempRoot } from './helpers.ts';
@@ -45,7 +45,7 @@ test('public native help registers execution, source, validation, Jev, job and s
   const verbs = ['exec', 'run', 'validate', 'jev', 'start', 'status', 'events', 'wait', 'stop', 'watch', 'follow', 'list', 'serve', 'capabilities', 'update'];
   for (const cmd of verbs) expect(r.out).toContain(cmd);
   expect((await run(['--version'])).out).toContain(`${manifest.version}-native`);
-  expect(manifest.version).toBe('0.5.1');
+  expect(manifest.version).toBe('0.6.0');
   expect(manifest.bin['jev-fabric']).toBe('build/jev-fabric');
   expect(Object.keys(manifest.bin)).toEqual(['jev-fabric']);
   expect(manifest.scripts.demo).toContain('examples/native/pipeline.bend');
@@ -309,9 +309,29 @@ test('follow times out without stopping or renewing the job', async () => {
 }, 20000);
 
 test('follow discloses events evicted before its cursor with a loss record', async () => {
-  // Over 64 ticks of output: the ring keeps only the latest 64 events.
-  const script = 'i=0; while [ "$i" -lt 80 ]; do printf x; /bin/sleep 0.03; i=$((i+1)); done';
-  const id = await startJob(['/bin/sh', '-c', script]);
+  // A sleep is not an event boundary: output reads may coalesce on busy hosts.
+  // Acknowledge each observed output before allowing the next write.
+  const acknowledgements = join(root, 'retention-acks');
+  const fifo = Bun.spawnSync(['mkfifo', acknowledgements], { env: { PATH: '/usr/bin:/bin' }, timeout: 5000 });
+  expect(fifo.exitCode).toBe(0);
+  const script = 'exec 3<"$1"; i=0; while [ "$i" -lt 80 ]; do printf x; read -r ack <&3 || exit 1; i=$((i+1)); done';
+  const id = await startJob(['/bin/sh', '-c', script, 'sh', acknowledgements]);
+  // Keep both ends open throughout: reopening each turn can deliver an EOF
+  // between writers, allowing the shell to exit before the next acknowledgement.
+  const ack = openSync(acknowledgements, 'r+');
+  const live = stream(['follow', '--timeout-ms', '90000', id]);
+  try {
+    for (let i = 0; i < 80; i++) {
+      const output = await live.until(line => line.type === 'process.output' && line.data.stream === 'stdout');
+      expect(output?.data.text, JSON.stringify(live.seen.slice(-3))).toBe('x');
+      writeSync(ack, 'observed\n');
+    }
+    expect((await live.until(line => line.type === 'follow.end')).reason).toBe('finished');
+    expect(await live.child.exited).toBe(0);
+  } finally {
+    closeSync(ack);
+    if (live.child.exitCode === null) live.child.kill();
+  }
   expect(JSON.parse((await durable(['wait', '--timeout-ms', '30000', id])).out).state).toBe('exited');
   started.delete(id);
   const retained = jsonLines((await durable(['events', id])).out);
@@ -326,7 +346,7 @@ test('follow discloses events evicted before its cursor with a loss record', asy
   // No loss when the cursor is inside the retained window.
   const inside = jsonLines((await durable(['follow', id, String(retained[0].sequence)])).out);
   expect(inside.some(line => line.type === 'follow.loss')).toBe(false);
-}, 40000);
+}, 120000);
 
 test('follow and events reject unknown jobs and bad cursors like the other controls', async () => {
   const unknown = 'e'.repeat(32);

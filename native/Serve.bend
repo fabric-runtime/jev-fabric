@@ -5,6 +5,9 @@ import ./Codec.bend as Codec
 import ./Scope.bend as Scope
 import ./Jev.bend as Jev
 import ./JevCore.bend as JevPolicy
+import ./Decision.bend as Decision
+import ./DecisionConfig.bend as DecisionConfig
+import ./DecisionTargets.bend as DecisionTargets
 import ./Core.bend as JevBudget
 import ./Host.bend as Host
 import ./Process.bend as Process
@@ -126,6 +129,7 @@ def subprocess(+context: Context, +id: J.JSON, plan: Result<&1, &1, U32 & String
 
 type Queued is Data:
   Queued{id: J.JSON, request: J.JSON, timeout: Maybe<&2, U32>, provider: String, credential: String}
+  Deciding{id: J.JSON, request: J.JSON, timeout: Maybe<&2, U32>, credential: String}
 
 def evaluated(result: Jev.Returned) -> Answered:
   (client, response) = result
@@ -232,10 +236,28 @@ def evaluate_checked(
       +plain = String.is_empty(provider) && String.is_empty(credential)
       evaluate_request(context, client, request, cap, provider, credential, plain)
 
+def decision_evaluated(result: Jev.Returned) -> Answered:
+  match result:
+    case (client, Fail{error}):
+      (client, Fail{error})
+    case (client, Done{value}):
+      (client, Decision.encode(value))
+
+def decide_checked(+context: Context, client: Jev.Client, request: Answer, credential: String, cap: U32) -> IO(Answered):
+  match request:
+    case Fail{error}:
+      IO.pure(Answered, (client, Fail{error}))
+    case Done{text}:
+      do IO<Answered>:
+        result : Jev.Returned <- Decision.evaluate_for(scope(context), client, text, credential, cap)
+        return decision_evaluated(result)
+
 def jev_timed(+context: Context, client: Jev.Client, queued: Queued, expired: Bool) -> IO(Answered):
   match queued expired:
     case other True{}:
       IO.pure(Answered, (client, Fail{Core.expired()}))
+    case Deciding{id, request, requested, credential} False{}:
+      decide_checked(context, client, Codec.encode_with_limit(request, 16777216), credential, Core.or(requested, Time.max_timeout()))
     case Queued{id, request, requested, provider, credential} False{}:
       evaluate_checked(
         context,
@@ -255,6 +277,8 @@ def jev_answered(+context: Context, +id: J.JSON, answer: Answered) -> IO(Unit):
 def queued_id(queued: Queued) -> J.JSON:
   match queued:
     case Queued{id, request, requested, provider, credential}:
+      id
+    case Deciding{id, request, requested, credential}:
       id
 
 # Runs in its own fiber and hands the client back to the hub when done.
@@ -876,11 +900,26 @@ def refuse_or_answer(state: Hub, +id: J.JSON, result: Answer) -> IO(Hub):
     respond(id, result)
     return state
 
+def resolve_decision_request(encoded: Answer) -> IO(Answer):
+  match encoded:
+    case Fail{error}: IO.pure(Answer, Fail{error})
+    case Done{text}: DecisionTargets.offline(text)
+
 # Requests that name no session child.
 def unaddressed(+context: Context, state: Hub, +id: J.JSON, op: Core.Op, +remaining: U32) -> IO(Hub):
   match op:
     case Core.Validate{request}:
       refuse_or_answer(state, id, Core.validated(request))
+    case Core.DecisionProviders{}:
+      refuse_or_answer(state, id, Codec.encode(DecisionConfig.providers()))
+    case Core.ResolveDecision{request}:
+      do IO<Hub>:
+        result : Answer <- resolve_decision_request(Codec.encode_with_limit(request, 16777216))
+        refuse_or_answer(state, id, result)
+    case Core.ValidateDecision{request}:
+      refuse_or_answer(state, id, Core.validated_decision(request))
+    case Core.Decide{request, requested, credential}:
+      jev_arrive(context, state, Deciding{id, request, requested, credential})
     case Core.Capabilities{}:
       refuse_or_answer(state, id, Done{Core.capabilities(Cli.version(), platform(context))})
     case Core.Evaluate{request, requested, provider, credential}:
@@ -1011,7 +1050,7 @@ def answer_line(+context: Context, state: Hub, line: List<&2, U32>) -> IO(Hub):
     case Nil{}:
       IO.pure(Hub, state)
     case bytes:
-      decoded(context, state, Core.unreadable(Codec.read_bytes(bytes)))
+      decoded(context, state, Core.unreadable(Codec.read_bytes_with_limit(bytes, Core.line_max())))
 
 def answer_if(+context: Context, state: Hub, line: List<&2, U32>, open: Bool) -> IO(Hub):
   match open:
@@ -1183,8 +1222,8 @@ def overflowed(input: File, +context: Context, pending: List<&2, U32>, +size: U3
   match over:
     case True{}:
       do IO<Reading>:
-        respond(J.Null{}, Fail{(2, "request line exceeds 1 MiB")})
-        stop_reading(input, context, Closed{2, "request line exceeds 1 MiB", Nil{}})
+        respond(J.Null{}, Fail{(2, "request line exceeds 16 MiB")})
+        stop_reading(input, context, Closed{2, "request line exceeds 16 MiB", Nil{}})
     case False{}:
       IO.pure(Reading, More{input, pending, size})
 

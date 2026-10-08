@@ -7,6 +7,11 @@ import ./Input.bend as Input
 import ./Codec.bend as Codec
 import ./Wire.bend as Wire
 import ./Jev.bend as Jev
+import ./Decision.bend as Decision
+import ./DecisionTargets.bend as DecisionTargets
+import ./DecisionCli.bend as DecisionCli
+import ./DecisionWire.bend as DecisionWire
+import ./DecisionConfig.bend as DecisionConfig
 import ./Cli.bend as Cli
 import ./Time.bend as Time
 import ./Serve.bend as Serve
@@ -71,6 +76,56 @@ def evaluate_file(path: String, timeout: Maybe<&2, U32>, tokens: Maybe<&2, U32>)
     case _ _:
       IO.die(Unit, 2, "Jev timeout and token limit must be integers")
 
+def print_decision(value: Codec.Value) -> IO(Unit):
+  do IO<Unit>:
+    text : String <- IO.pass(String, Decision.encode(value))
+    IO.print(text)
+
+def decided(result: Jev.Returned) -> IO(Unit):
+  (client, response) = result
+  do IO<Unit>:
+    value : Codec.Value <- IO.pass(Codec.Value, response)
+    print_decision(value)
+
+def decide_file(path: String, timeout: Maybe<&2, U32>, tokens: Maybe<&2, U32>) -> IO(Unit):
+  match timeout tokens:
+    case Some{ms} Some{limit}:
+      do IO<Unit>:
+        request : String <- IO.try(String, Input.read_limit(path, Decision.limit()))
+        client : Jev.Client <- IO.try(Jev.Client, Jev.from_env(ms, 1, limit))
+        result : Jev.Returned <- Decision.evaluate(client, request, "")
+        decided(result)
+    case _ _:
+      IO.die(Unit, 2, "decision timeout and token limit must be integers")
+
+def target_file(path: String, overrides: String) -> IO(String):
+  do IO<String>:
+    text : String <- IO.try(String, Input.read_limit(path, Decision.limit()))
+    IO.pass(String, DecisionCli.request(text, overrides))
+
+def decide_flags_file(path: String, timeout: Maybe<&2, U32>, tokens: Maybe<&2, U32>, overrides: String) -> IO(Unit):
+  match timeout tokens:
+    case Some{ms} Some{limit}:
+      do IO<Unit>:
+        request : String <- target_file(path, overrides)
+        client : Jev.Client <- IO.try(Jev.Client, Jev.from_env(ms, 1, limit))
+        result : Jev.Returned <- Decision.evaluate(client, request, "")
+        decided(result)
+    case _ _: IO.die(Unit, 2, "decision timeout and token limit must be integers")
+
+def resolve_decision_file(path: String, overrides: String) -> IO(Unit):
+  do IO<Unit>:
+    request : String <- target_file(path, overrides)
+    result : Result<&1, &1, U32 & String, String> <- DecisionTargets.offline(request)
+    text : String <- IO.pass(String, result)
+    IO.print(text)
+
+def validate_decision_file(path: String) -> IO(Unit):
+  do IO<Unit>:
+    text : String <- IO.try(String, Input.read_limit(path, Decision.limit()))
+    value : Codec.Value <- IO.pass(Codec.Value, DecisionWire.request(text))
+    print_decision(value)
+
 def validate_file(path: String) -> IO(Unit):
   do IO<Unit>:
     text : String <- IO.try(String, Input.read(path))
@@ -84,6 +139,11 @@ def usage_text() -> String:
     ++ "  run [--timeout-ms N] [--] <program.bend> [args...]\n"
     ++ "  validate <request.json>\n"
     ++ "  jev [--timeout-ms N] <request.json> [max-tokens]\n"
+    ++ "  decide [--timeout-ms N] [target flags] <request.json> [max-tokens]\n"
+    ++ "  validate-decision <request.json>\n"
+    ++ "  resolve-decision [target flags] <request.json> (offline preflight)\n"
+    ++ "  target flags: --provider --model --profile --api --endpoint (each takes a value)\n"
+    ++ "  decision-providers (registered endpoints and capabilities, without credentials)\n"
     ++ "  start [--timeout-ms N] [--label TEXT] [--cwd DIR] [--] <command> [args...]\n"
     ++ "  status <id> | list | events [--timeout-ms N] <id> [after-sequence]\n"
     ++ "  follow [--timeout-ms N] <id> [after-sequence] (live JSONL events)\n"
@@ -143,7 +203,7 @@ def capabilities() -> IO(Unit):
     platform : String <- Host.platform()
     IO.print(ServeCore.capabilities(Cli.version(), platform))
 
-def dispatch(args: List<String>) -> IO(Unit):
+def dispatch_legacy(args: List<String>) -> IO(Unit):
   match args:
     case Nil{}:
       usage()
@@ -167,6 +227,12 @@ def dispatch(args: List<String>) -> IO(Unit):
       Serve.serve(U32.read(timeout), rest)
     case Con{"validate", Con{path, Nil{}}}:
       validate_file(path)
+    case Con{"decide", Con{timeout, Con{path, Con{tokens, Con{overrides, Nil{}}}}}}:
+      decide_flags_file(path, U32.read(timeout), U32.read(tokens), overrides)
+    case Con{"decide", Con{timeout, Con{path, Nil{}}}}:
+      decide_file(path, U32.read(timeout), Some{100000})
+    case Con{"decide", Con{timeout, Con{path, Con{tokens, Nil{}}}}}:
+      decide_file(path, U32.read(timeout), U32.read(tokens))
     case Con{"jev", Con{timeout, Con{path, Nil{}}}}:
       evaluate_file(path, U32.read(timeout), Some{100000})
     case Con{"jev", Con{timeout, Con{path, Con{tokens, Nil{}}}}}:
@@ -174,9 +240,47 @@ def dispatch(args: List<String>) -> IO(Unit):
     case args:
       Jobs.command(args)
 
+# Equality gates avoid long String-pattern expansion in Bend 2.0.36.
+def discovery_args(args: List<String>) -> IO(Unit):
+  match args:
+    case Nil{}: print_value(DecisionConfig.providers())
+    case other: Jobs.command(Con{"decision-providers", other})
+
+def validation_args(args: List<String>) -> IO(Unit):
+  match args:
+    case Con{path, Nil{}}: validate_decision_file(path)
+    case other: Jobs.command(Con{"validate-decision", other})
+
+def dispatch_discovery(command: String, args: List<String>, yes: Bool) -> IO(Unit):
+  match yes:
+    case True{}: discovery_args(args)
+    case False{}: dispatch_legacy(Con{command, args})
+
+def dispatch_validation(+command: String, args: List<String>, yes: Bool) -> IO(Unit):
+  match yes:
+    case True{}: validation_args(args)
+    case False{}: dispatch_discovery(command, args, String.eq(command, "decision-providers"))
+
+def resolution_args(args: List<String>) -> IO(Unit):
+  match args:
+    case [timeout, path, tokens, overrides]: resolve_decision_file(path, overrides)
+    case other: IO.die(Unit, 2, "resolve-decision requires a request file")
+
+def dispatch_resolution(+command: String, args: List<String>, yes: Bool) -> IO(Unit):
+  match yes:
+    case True{}: resolution_args(args)
+    case False{}: dispatch_validation(command, args, String.eq(command, "validate-decision"))
+
+def dispatch(args: List<String>) -> IO(Unit):
+  match args:
+    case Nil{}: usage()
+    case Con{+command, rest}: dispatch_resolution(command, rest, String.eq(command, "resolve-decision"))
+
 def default_timeout(command: String) -> IO(U32):
   match command:
     case "jev":
+      Time.jev()
+    case "decide":
       Time.jev()
     case "wait":
       Time.wait()

@@ -30,6 +30,8 @@ chmod 755 "$root/bin/jev-fabric"
 cp native/*.bend native/*.c native/trust.json "$root/native/"
 cp -R native/vendor "$root/native/vendor"
 cp -R examples/native examples/doom examples/clients "$root/examples/"
+cp examples/decision-profiles.json "$root/examples/"
+cp -R docs "$root/docs"
 # Clients ship without their tests.
 mkdir -p "$root/clients/python" "$root/clients/typescript"
 cp clients/python/jev_fabric.py "$root/clients/python/"

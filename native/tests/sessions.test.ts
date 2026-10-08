@@ -105,7 +105,7 @@ async function readUntil(c: Connection, job: string, want: string, from = 0, str
 test('banner and capabilities describe protocol 2', async () => {
   const c = await connect(['--timeout-ms', '86400000']);
   const { ready } = await c.banner;
-  expect(ready).toMatchObject({ protocol: 2, version: '0.5.1-native', timeoutMs: 86400000, store: 1 });
+  expect(ready).toMatchObject({ protocol: 2, version: '0.6.0-native', timeoutMs: 86400000, store: 1 });
   expect(ready.platform).toMatch(/^(darwin|linux)-(arm64|x64)$/);
   expect(ready.features).toEqual(expect.arrayContaining(['serve-concurrent', 'sessions', 'serve-24h', 'cwd']));
   const caps = await c.ok({ op: 'capabilities' });

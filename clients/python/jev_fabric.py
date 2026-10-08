@@ -26,17 +26,193 @@ from __future__ import annotations
 import itertools
 import json
 import os
+import math
+import re
+from types import MappingProxyType
 import subprocess
 import threading
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, TypedDict, Union
 
-__all__ = ["Fabric", "FabricError", "PROTOCOL"]
+__all__ = ["Fabric", "FabricError", "PROTOCOL", "DecisionTarget", "DecisionProfiles", "DecisionResolution", "DecisionTargetView"]
 
 # The protocol major this client speaks; features are only added within it.
 PROTOCOL = 2
 
 Json = Dict[str, Any]
 
+
+class _TargetRequired(TypedDict):
+    provider: str
+
+
+class DecisionTarget(_TargetRequired, total=False):
+    api: str
+    model: str
+    endpoint: str
+    allowLocal: bool
+    allowGenerated: bool
+    providerOptions: Dict[str, Any]
+    temperature: float
+
+
+class _ProfilesRequired(TypedDict):
+    version: Literal[1]
+    profiles: Dict[str, DecisionTarget]
+
+
+class DecisionProfiles(_ProfilesRequired, total=False):
+    defaultProfile: str
+
+
+class _ResolvedRequired(TypedDict):
+    provider: str
+    api: str
+    model: str
+    endpoint: str
+    allowLocal: bool
+    allowGenerated: bool
+
+
+class _ResolvedTarget(_ResolvedRequired, total=False):
+    providerOptions: Dict[str, Any]
+    temperature: float
+
+
+class _Credential(TypedDict):
+    env: str
+    resolved: Literal[False]
+
+
+class _ResolutionRequired(TypedDict):
+    target: _ResolvedTarget
+    credential: _Credential
+    imageSupport: Literal["supported", "unsupported", "model-dependent"]
+    generated: bool
+
+
+class DecisionResolution(_ResolutionRequired, total=False):
+    profile: str
+
+_DECISION_APIS = {"system-one", "cloudflare", "openai-decisions", "vercel-evaluate", "llama-cpp", "llama-system-one", "anthropic", "google"}
+_TARGET_FIELDS = {"provider", "api", "model", "endpoint", "allowLocal", "allowGenerated", "providerOptions", "temperature"}
+_CONFIG_ERROR = "Invalid decision target/profile: expected non-secret, finite JSON with only supported fields"
+
+
+def _secret_field(key: str) -> bool:
+    key = re.sub(r"[^a-z0-9]", "", key.lower())
+    return bool(re.search(r"secret|password|credential|apikey|authorization", key)) or key in {
+        "auth", "headers", "token", "accesstoken", "refreshtoken", "privatekey"
+    }
+
+
+def _object_fields(value: Any, allowed: Optional[set] = None) -> None:
+    if type(value) is not dict or (allowed is not None and not value.keys() <= allowed):
+        raise ValueError(_CONFIG_ERROR)
+
+
+def _clone_json(value: Any, seen: Optional[set] = None, depth: int = 0, reject_secrets: bool = False) -> Any:
+    if depth > 64:
+        raise ValueError(_CONFIG_ERROR)
+    if value is None or type(value) in (str, bool, int):
+        return value
+    if type(value) is float and math.isfinite(value):
+        return value
+    if type(value) not in (dict, list):
+        raise ValueError(_CONFIG_ERROR)
+    seen = set() if seen is None else seen
+    if id(value) in seen:
+        raise ValueError(_CONFIG_ERROR)
+    seen.add(id(value))
+    if type(value) is list:
+        result = [_clone_json(v, seen, depth + 1, reject_secrets) for v in value]
+    else:
+        result = {}
+        for key, item in value.items():
+            if type(key) is not str or (reject_secrets and _secret_field(key)):
+                raise ValueError(_CONFIG_ERROR)
+            result[key] = _clone_json(item, seen, depth + 1, reject_secrets)
+    seen.remove(id(value))
+    return result
+
+
+def _profile_name(value: Any) -> str:
+    if type(value) is not str or re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", value) is None or value in {"__proto__", "prototype", "constructor"}:
+        raise ValueError(_CONFIG_ERROR)
+    return value
+
+
+def _validate_target(value: Any) -> DecisionTarget:
+    target = _clone_json(value, reject_secrets=True)
+    _object_fields(target, _TARGET_FIELDS)
+    if type(target.get("provider")) is not str or not target["provider"].strip():
+        raise ValueError(_CONFIG_ERROR)
+    for key in ("provider", "api", "model", "endpoint"):
+        if key in target and (type(target[key]) is not str or not target[key] or re.search(r"[\x00-\x1f\x7f]", target[key])):
+            raise ValueError(_CONFIG_ERROR)
+    if "api" in target and target["api"] not in _DECISION_APIS:
+        raise ValueError(_CONFIG_ERROR)
+    if "model" in target and (len(target["model"]) > 256 or re.search(r"[\ud800-\udfff]", target["model"])):
+        raise ValueError(_CONFIG_ERROR)
+    for key in ("allowLocal", "allowGenerated"):
+        if key in target and type(target[key]) is not bool:
+            raise ValueError(_CONFIG_ERROR)
+    if "temperature" in target and (type(target["temperature"]) not in (float, int) or not 0 <= target["temperature"] <= 2):
+        raise ValueError(_CONFIG_ERROR)
+    if "providerOptions" in target:
+        _object_fields(target["providerOptions"])
+    if "endpoint" in target:
+        # Raw shape matches native; selected preflight enforces loopback opt-in.
+        endpoint = target["endpoint"]
+        match = re.fullmatch(r"(https?)://([A-Za-z0-9.-]+|\[::1\])(?::([0-9]+))?(?:/.*)?", endpoint)
+        if (not match or re.search(r"[^\x21-\x7e]|[?#\\]", endpoint) or len(endpoint) > 4096
+                or (match[3] is not None and not 1 <= int(match[3]) <= 65535)
+                or (match[1] != "https" and match[2] not in {"127.0.0.1", "[::1]"})):
+            raise ValueError(_CONFIG_ERROR)
+    return target
+
+
+def _validate_resolved_target(value: Any) -> _ResolvedTarget:
+    target = _validate_target(value)
+    if not {"provider", "api", "model", "endpoint", "allowLocal", "allowGenerated"} <= target.keys():
+        raise ValueError(_CONFIG_ERROR)
+    if target["api"] not in _DECISION_APIS:
+        raise ValueError(_CONFIG_ERROR)
+    return target
+
+
+def _serialize_profiles(value: DecisionProfiles) -> str:
+    doc = _clone_json(value)
+    _object_fields(doc, {"version", "defaultProfile", "profiles"})
+    if type(doc.get("version")) is not int or doc["version"] != 1:
+        raise ValueError(_CONFIG_ERROR)
+    _object_fields(doc.get("profiles"))
+    if len(doc["profiles"]) > 128:
+        raise ValueError(_CONFIG_ERROR)
+    for name, target in doc["profiles"].items():
+        _profile_name(name)
+        _validate_target(target)
+    if "defaultProfile" in doc and _profile_name(doc["defaultProfile"]) not in doc["profiles"]:
+        raise ValueError(_CONFIG_ERROR)
+    text = json.dumps(doc, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    if len(text.encode("utf-8")) > 65536:
+        raise ValueError(_CONFIG_ERROR)
+    return text
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, dict):
+        return MappingProxyType({k: _freeze(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(v) for v in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {k: _thaw(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(v) for v in value]
+    return value
 
 class FabricError(Exception):
     """A request the session refused or could not complete.
@@ -51,6 +227,59 @@ class FabricError(Exception):
         self.message = message
         self.op = op
 
+
+class DecisionTargetView:
+    """Immutable routing snapshot; no open/close and no stored credentials.
+
+    Calls share the exact parent connection, deadline and evaluation budget.
+    ``target`` returns a fresh, recursively read-only copy (arrays are tuples).
+    """
+
+    __slots__ = ("__parent", "__target", "__resolved", "__bind_lock")
+
+    def __init__(self, parent: Fabric, target: Union[DecisionTarget, str]) -> None:
+        parent._require_decision_targets()
+        bound = _profile_name(target) if isinstance(target, str) else _freeze(_validate_target(target))
+        object.__setattr__(self, "_DecisionTargetView__parent", parent)
+        object.__setattr__(self, "_DecisionTargetView__target", bound)
+        object.__setattr__(self, "_DecisionTargetView__resolved", None)
+        object.__setattr__(self, "_DecisionTargetView__bind_lock", threading.Lock())
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("DecisionTargetView is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("DecisionTargetView is immutable")
+
+    @property
+    def target(self) -> Union[Mapping[str, Any], str]:
+        return _freeze(_thaw(self.__target))
+
+    def _prepare(self, evidence: Json) -> Any:
+        request = _clone_json(evidence)
+        _object_fields(request, {"state", "questions", "images"})
+        resolution = None
+        if isinstance(self.__target, str):
+            # Hold the lock through offline preflight. Publish only a validated,
+            # frozen target; failures leave the view unbound and retryable.
+            with self.__bind_lock:
+                if self.__resolved is None:
+                    resolution = self.__parent.resolve_decision(dict(request, profile=self.__target))
+                    target = _freeze(_validate_resolved_target(resolution.get("target")))
+                    object.__setattr__(self, "_DecisionTargetView__resolved", target)
+                routing = self.__resolved
+        else:
+            routing = self.__target
+        request.update(_thaw(routing))
+        return request, resolution
+
+    def decide(self, evidence: Json, *, timeout_ms: Optional[int] = None, credential: Optional[str] = None) -> Json:
+        request, _ = self._prepare(evidence)
+        return self.__parent.decide(request, timeout_ms=timeout_ms, credential=credential)
+
+    def resolve_decision(self, evidence: Json) -> DecisionResolution:
+        request, resolution = self._prepare(evidence)
+        return resolution if resolution is not None else self.__parent.resolve_decision(request)
 
 class _Slot:
     """One request waiting for the response with its id."""
@@ -86,7 +315,12 @@ class Fabric:
         max_tokens: Optional[int] = None,
         env: Optional[Mapping[str, str]] = None,
         cwd: Optional[str] = None,
+        decision_profiles: Optional[DecisionProfiles] = None,
     ) -> None:
+        profiles = None if decision_profiles is None else _serialize_profiles(decision_profiles)
+        if profiles is not None:
+            env = dict(os.environ if env is None else env)
+            env["DECISION_PROFILES"] = profiles
         executable = binary or os.environ.get("JEV_FABRIC_BIN") or "jev-fabric"
         argv = [executable, "--", "serve"]
         if timeout_ms is not None:
@@ -120,6 +354,15 @@ class Fabric:
         self.ready: Json = ready
         self._reader = threading.Thread(target=self._pump, name="jev-fabric-serve", daemon=True)
         self._reader.start()
+        if profiles is not None:
+            try:
+                self._require_decision_targets()
+            except FabricError:
+                self.close()
+                self._reader.join()
+                self._process.stdout.close()
+                self._process.stderr.close()
+                raise
 
     # -- processes -----------------------------------------------------------
 
@@ -241,6 +484,50 @@ class Fabric:
         return self._call("watch", job=job, literal=literal, timeoutMs=timeout_ms)
 
     # -- Jev -----------------------------------------------------------------
+
+    def decision_providers(self) -> List[Json]:
+        """List registered presets offline; this does not probe models or credentials."""
+        return self._call("decisionProviders")
+
+    def validate_decision(self, request: Json) -> Json:
+        """Validate a decision request offline, without retrieving credentials."""
+        if "profile" in request:
+            self._require_decision_targets()
+            _profile_name(request["profile"])
+        return self._call("validateDecision", request=request)
+
+    def decide(
+        self,
+        request: Json,
+        *,
+        timeout_ms: Optional[int] = None,
+        credential: Optional[str] = None,
+    ) -> Json:
+        """One decision against the shared evaluation budget. Check ``status``.
+
+        ``rawJson`` preserves provider JSON for exact-number parsing, for example
+        ``json.loads(result["rawJson"], parse_float=decimal.Decimal)``.
+        """
+        if "profile" in request:
+            self._require_decision_targets()
+            _profile_name(request["profile"])
+        return self._call("decide", request=request, timeoutMs=timeout_ms, credential=credential)
+
+    def _require_decision_targets(self) -> None:
+        if "decision-targets" not in self.ready.get("features", []):
+            raise FabricError(1, "decision-targets requires an updated jev-fabric binary; update jev-fabric")
+
+    def resolve_decision(self, request: Json) -> DecisionResolution:
+        """Resolve routing offline; name credentials without retrieving them."""
+        self._require_decision_targets()
+        if "profile" in request:
+            _profile_name(request["profile"])
+        return self._call("resolveDecision", request=request)
+
+    def with_decision_target(self, target: Union[DecisionTarget, str]) -> DecisionTargetView:
+        """Snapshot non-secret routing in a non-owning view of this session."""
+        self._require_decision_targets()
+        return DecisionTargetView(self, target)
 
     def validate(self, request: Json) -> Json:
         """Strictly validate a Jev request offline, without credentials."""

@@ -6,8 +6,10 @@ sh scripts/build-native.sh
 # The safety gate in build-native.sh already checked every example module.
 
 # Build outside Bun's test hooks, with process-group deadlines and phase evidence.
-fixtures='core io fail-fast jobs jobs-streams codec codec-limits wire codec-wire-probe
-  http jev-client session monitor monitor-pure policy-core time-core timers'
+fixtures='policy-checks io fail-fast jobs jobs-streams codec codec-limits wire codec-wire-probe
+  http jev-client session monitor monitor-pure timers
+  codec-decision decision-http-core decision-config decision-http-probe
+  decision-generated-probe decision-local decision-wire-probe decision-targets decision-target-cli'
 # Per fixture: <name>.json receipt, .pid of its deadline supervisor, .start time, .status exit code.
 receipts=build/fixture-receipts
 # The supervisor's exit code after SIGTERM (128 + 15).
@@ -128,7 +130,8 @@ if [ -n "$failed" ]; then
   exit 1
 fi
 
-build/test-core
 build/test-jobs-streams
+build/test-codec-decision
+build/test-decision-http-core
 export JEV_NATIVE_PREBUILT=1
 bun test --timeout 30000 native/tests/*.test.ts

@@ -14,7 +14,11 @@ All commands follow `build/jev-fabric --`:
 | `exec [--timeout-ms N] [--stdin] [--cwd DIR] [--] <command> [args...]` | Literal argv, owned process group, bounded final receipt |
 | `run [--timeout-ms N] [--] <program.bend> [args...]` | Compile into a private directory, then run with inherited stdin; one outside deadline covers both |
 | `validate <request.json>` | Strict UTF-8/JSON plus typed Jev request validation; no credentials/network |
-| `jev [--timeout-ms N] <request.json> [max-tokens]` | One explicit evaluation; default 100000 reported tokens |
+| `jev [--timeout-ms N] <request.json> [max-tokens]` | One explicit legacy Jev evaluation; default 100000 reported tokens |
+| `decide [--timeout-ms N] <request.json> [max-tokens]` | One additive lossless decision; default 100000 reported tokens; inspect `status` and `budget` |
+| `validate-decision <request.json>` | Offline decision request-schema validation; no credentials/network |
+| `resolve-decision [target flags] <request.json>` | Offline resolved target and adapter preflight; flags: `--profile`, `--provider`, `--model`, `--api`, `--endpoint` (also accepted by `decide`); see [targets](decision-targets.md) |
+| `decision-providers` | Registered decision preset definitions, not live model availability or credential checks |
 | `start [--timeout-ms N] [--label TEXT] [--cwd DIR] [--input pipe] [--] <command> [args...]` | Native detached worker; returns private job ID. Lifetime 1..86400000 ms. `--input pipe` keeps stdin open for `write` |
 | `write <id> (--stdin \| -- text...)` | Queue text (standard input, or the words joined by spaces) for an interactive job's stdin; prints a write record |
 | `close-input <id>` | End an interactive job's stdin after what is queued; idempotent |
@@ -25,7 +29,7 @@ All commands follow `build/jev-fabric --`:
 | `list` | One JSON summary of the job directories under the storage root, newest first |
 | `wait [--timeout-ms N] <id>` | Poll until final receipt or client deadline; timeout returns running state |
 | `stop <id>` | Idempotent cooperative stop through a private marker, never arbitrary PID signalling |
-| `serve [--timeout-ms N] [max-evaluations [max-tokens]]` | JSONL session on stdin/stdout: concurrent requests matched by id, one Jev client, one deadline (1..86400000 ms) and the session's children. See [the serve protocol](serve-protocol.md) |
+| `serve [--timeout-ms N] [max-evaluations [max-tokens]]` | JSONL session on stdin/stdout: concurrent requests matched by id, one shared Jev/decision budget, one deadline (1..86400000 ms) and the session's children. See [the serve protocol](serve-protocol.md) |
 | `capabilities` | One JSON line: `version`, `protocol`, `store`, `platform`, `features` |
 | `update` | Print and run `curl -fsSL …/install.sh \| sh`, like `bend update`; exits with the installer's status. `JEV_FABRIC_PREFIX`/`JEV_FABRIC_VERSION` pass through |
 | `watch [--timeout-ms N] <id> <literal>` | Live bounded line batches, loss records and a final observation summary; duration 1..300000 ms |
@@ -35,7 +39,7 @@ Timers may be omitted. Defaults and configuration:
 | Operations | Default maximum | Environment override |
 | --- | --- | --- |
 | `exec`, `run`, `start`, `serve` sessions, timer-free Process/Session APIs, `Scope.open` | 1 hour | `JEV_FABRIC_TIMEOUT_MS` |
-| `jev`, `Jev.connect` | 30 seconds | `JEV_FABRIC_JEV_TIMEOUT_MS` |
+| `jev`, `decide`, `Jev.connect` | 30 seconds | `JEV_FABRIC_JEV_TIMEOUT_MS` |
 | CLI `wait`, `follow` | 30 seconds | `JEV_FABRIC_WAIT_MS` |
 | CLI `watch` | 5 seconds | `JEV_FABRIC_WATCH_MS` |
 
@@ -63,7 +67,7 @@ version string:
 ```json
 {"version":"0.5.1-native","protocol":2,"store":1,"platform":"darwin-arm64",
  "features":["follow","list","label","start-24h","serve-24h","serve-concurrent","sessions","cwd",
-             "durable-input","read","jev-request-credential"]}
+             "durable-input","read","jev-request-credential","decisions"]}
 ```
 
 `features` lists only what this binary implements; within a protocol major,
@@ -253,6 +257,11 @@ usage counts at the native 48-bit Nat maximum (281474976710655). These limits
 intentionally differ from JavaScript numbers. Generic bounded JSON can preserve
 larger numeric lexemes; wire numeric operations impose the tighter bounds.
 
+Decision-specific codec entry points accept explicit byte limits up to 16 MiB;
+they do not widen these legacy functions. Local logprob replies/results alone
+use a structural work profile up to 524288, still at most 16 MiB, with the same
+depth, object/key and numeric-lexeme limits. See [decision limits](decisions.md#size-limits-and-evidence).
+
 Vendoring, patches, license and hashes: `native/vendor/PROVENANCE.md`.
 
 ## Jev.bend
@@ -289,8 +298,10 @@ The request is validated before resolution. Exhausted budgets prevent even the
 credential command. Invalid requests/credentials consume no call; dispatched
 HTTP failures do consume a call and are not retried. Credential time is deducted
 from the same monotonic HTTP deadline. Reported token overshoot blocks later
-calls with overflow-safe accounting; missing usage counts as zero. The final
-request may still be billed above the token limit. Use call limits as well.
+calls with overflow-safe accounting. Legacy `Wire.usage` requires both
+`input_tokens` and `output_tokens`: absent or malformed usage is rejected, not
+counted as zero. The final request may still be billed above the token limit.
+Use call limits as well.
 
 `Http.post` is a lower-level explicit URL API for trusted programs. It validates
 HTTPS, disables proxies, rejects redirects, verifies TLS, bounds the response
@@ -309,6 +320,53 @@ connection cache lives as long as the process. Process cancellation (SIGINT,
 SIGTERM, `Process.cancel`) aborts in-flight pooled transfers.
 System libcurl/curl, CA configuration and PATH remain trusted deployment
 dependencies.
+
+## Decision modules (additive)
+
+The full [lossless decisions reference](decisions.md) covers preset defaults,
+provider options, images, client methods and exact-number examples. Legacy
+`Jev`/`Wire` contracts above remain unchanged.
+
+```text
+Decision.evaluate(client, request_json, credential)
+  -> IO(Jev.Returned)  # Jev.Client & Result<..., Codec.Value>
+Decision.evaluate_for(scope, client, request_json, credential, cap)
+  -> IO(Jev.Returned)
+Decision.encode(value) -> Result<..., String>
+```
+
+Pass an empty credential string to use the configured resolver/key environment.
+Thread the returned client as with `Jev.evaluate`: both operations spend the
+same evaluation/token budget. `DecisionConfig` resolves presets and explicit
+routes; `DecisionWire.request` validates the additive schema, `body` translates
+it, `raw_usage` extracts accounting independently of answer validity, and
+`reply` normalizes while retaining the original AST and `rawJson`.
+`DecisionGenerated` handles opted-in Anthropic/Google estimates;
+`DecisionLocal` handles local chat token-logprob readouts, separately from the
+native `llama-system-one` protocol.
+
+Results carry `status:ok|error`, typed answers, provenance and a budget marker.
+Absent confidence/distributions are never synthesized. A per-question refusal
+keeps successful siblings. Malformed successful provider responses return
+`status:error` with captured raw text and usage, rather than hiding a billed
+response behind answer-validation failure. Transport failures remain errors;
+the local multi-request driver can return a captured post-dispatch error result.
+Usage is accounted before answer validation. Unknown/invalid usage or uncertain
+dispatch stops further shared evaluations. Reported token overshoot returns the
+original result with `budget:{exhausted:true,reason:'reported-token-limit'}` and
+blocks subsequent calls. Zero limits, invalid preflight and credential failures
+cause no model dispatch.
+
+`DECISION_PROVIDER`, `DECISION_MODEL`, `DECISION_ENDPOINT`, preset key variables
+and `DECISION_CREDENTIAL_COMMAND` configure this path; `custom` uses
+`DECISION_API_KEY`. Per-request credentials are ephemeral, not cached in the
+Jev client. `DecisionHttp.post` uses private curl **7.82+** with repeated `--json`
+chunks in its stdin configuration so a 16 MiB body does not exceed curl's
+configuration-line limit. It does not use the pooled legacy transport or
+`JEV_FABRIC_HTTP`, and never retries, follows redirects or uses environment
+proxies. Plain HTTP requires exact `127.0.0.1` or `[::1]` and `allowLocal:true`;
+`localhost`/DNS aliases do not qualify. Endpoints and resolver/config overrides
+are trusted inputs. Explicit gateway fallback options can bill multiple stages.
 
 ## Durable observations
 

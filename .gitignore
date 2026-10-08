@@ -13,3 +13,5 @@ build/
 _vizdoom.ini
 .venv-doom/
 npm-out/
+__pycache__/
+*.py[cod]

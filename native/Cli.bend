@@ -1,5 +1,6 @@
 import Base
 import ./TimeCore.bend as Time
+import ./DecisionCli.bend as DecisionCli
 
 # Normalize public conveniences into the stable positional dispatcher.
 # Parse only a prefix. After the command/source, all arguments remain literal.
@@ -7,7 +8,7 @@ def Error() -> Type:
   U32 & String
 
 def version() -> String:
-  "0.5.1-native"
+  "0.6.0-native"
 
 type Options is Type:
   Options{
@@ -388,6 +389,8 @@ def accepts_timeout(command: String) -> Bool:
       True{}
     case "jev":
       True{}
+    case "decide":
+      True{}
     case "wait":
       True{}
     case "watch":
@@ -401,12 +404,25 @@ def accepts_timeout(command: String) -> Bool:
     case other:
       False{}
 
+def decision_arguments(command: String, parsed: DecisionCli.Arguments) -> Plan:
+  match parsed:
+    case DecisionCli.Arguments{path, tokens, timeout, overrides}:
+      Timed{command, [path, tokens, overrides], timeout, False{}, plain()}
+
+def route_decision(+command: String, args: List<String>, decision: Bool) -> Result<&1, &1, Error, Plan>:
+  match decision:
+    case False{}: route(command, args, accepts_timeout(command))
+    case True{}:
+      do Result<&1, &1, Error, Plan>:
+        parsed : DecisionCli.Arguments <- DecisionCli.parse(args, String.eq(command, "resolve-decision"))
+        return decision_arguments(command, parsed)
+
 def parse(args: List<String>) -> Result<&1, &1, Error, Plan>:
   match args:
     case Nil{}:
       Done{Pass{Nil{}}}
     case Con{+command, rest}:
-      route(command, rest, accepts_timeout(command))
+      route_decision(command, rest, String.eq(command, "decide") || String.eq(command, "resolve-decision"))
 
 def exec_args(args: List<String>, ms: U32, input: Bool) -> List<String>:
   match input:

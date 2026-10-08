@@ -135,11 +135,40 @@ Rules:
 See [references/jev-requests.md](references/jev-requests.md) for the request
 schema, limits and patterns (including choosing among more than 255 options).
 
+## Additive lossless decisions
+
+Legacy `jev` stays strict and unchanged. For multi-provider decisions use
+`decision-providers` (offline registered presets, not live availability),
+`validate-decision request.json` (offline schema check), then an **authorized**
+`decide [--timeout-ms N] request.json [max-tokens]`. This path requires curl
+7.82+ and uses private curl, not the pooled legacy connection.
+
+For model changes, use `resolve-decision [--profile NAME | --provider PROVIDER
+--model MODEL] request.json` first: full routing/adapter preflight without key
+lookup or inference. The same target flags apply to `decide`. Portable profiles
+come from explicit `DECISION_PROFILES` JSON or `DECISION_PROFILES_FILE`, never an
+auto-discovered repository file. Explicit provider selection does not inherit
+another provider's ambient model/endpoint. Client `withDecisionTarget` /
+`with_decision_target` views bind immutable targets and share their parent's
+connection/budget; these APIs require feature `decision-targets`.
+
+Inspect both transport success and result `status`, per-question refusals,
+`provenance` and `budget`. `rawJson` preserves exact provider numeric text;
+missing confidence/distributions are never fabricated. `jev` and `decide` share
+the session evaluation/token budget; unknown usage or dispatch uncertainty
+stops later calls. Generated estimates require `allowGenerated:true`; local
+HTTP requires exact loopback and `allowLocal:true`. Neither opt-in grants
+permission to make model calls.
+
+See [the decisions reference](https://github.com/fabric-runtime/jev-fabric/blob/main/docs/decisions.md)
+for supported image adapters, options, credentials and client examples.
+
 ## Sessions from Python, TypeScript or any language
 
 When code (not you, turn by turn) makes many calls, one `serve` session beats
-repeated CLI invocations: one Jev client, so the call/token budget spans the
-session, the credential resolves once and the TLS connection stays warm.
+repeated CLI invocations: one Jev client, so the shared `jev`/`decide` call/token
+budget spans the session. Legacy Jev caches its credential and keeps TLS warm;
+`decide` resolves ephemeral credentials and uses private curl per dispatch.
 
 ```bash
 jev-fabric -- serve --timeout-ms 600000 20 50000   # 10 min, ≤20 Jev calls, ≤50000 tokens
@@ -161,7 +190,9 @@ Write one JSON request per line; read one response per line and match it by
 Ops: `exec` (`argv`, `stdin?`, `cwd?`), `start` (`argv`, `label?`, `cwd?`),
 `status`/`stop` (`job`), `events` (`job`, `after?`, `waitMs?` for a long poll),
 `wait` (`job`), `watch` (`job`, `literal`), `list` (`scope?`), `capabilities`,
-`validate`/`jev` (`request`, `provider?`, `credential?`); most take `timeoutMs?`.
+`validate`/`jev` (`request`, `provider?`, `credential?`); plus `validateDecision`
+(`request`), `decisionProviders` (no fields), `decide` (`request`, `timeoutMs?`,
+`credential?`, with routing inside `request`). Most work ops take `timeoutMs?`.
 Unknown fields are rejected. Close stdin to end the session.
 
 For an interactive process driven from code (a REPL, a language server, a game
@@ -192,8 +223,8 @@ program against the library and run it:
 jev-fabric -- run program.bend arg1 arg2     # compiles (needs `bend` 2.0.36), then runs
 ```
 
-HTTPS keeps one pooled TLS connection per process, so a Bend program or a
-`serve` session making many calls is much faster than repeated `jev` CLI
+Legacy Jev HTTPS keeps one pooled TLS connection per process, so a Bend program
+or a `serve` session making many Jev calls is much faster than repeated `jev` CLI
 invocations. See
 [references/bend-api.md](references/bend-api.md).
 

@@ -67,7 +67,26 @@ def scan_ok(state: Scan) -> Bool:
     case Scan{quoted, escaped, depth, work}:
       U32.is_le(depth, depth_max()) && U32.is_le(work, work_max())
 
-def scan(s: String, state: Scan, +bytes: U32) -> Result<&1, &1, U32 & String, Unit>:
+# High-work profiles count structural events, not every digit in each floating
+# lexeme. Bytes cap lexical work; valid() still caps nodes and numeric length.
+# The normal 32768 profile uses the original scanner without any change.
+def scan_profile_step(state: Scan, +c: Char, wide: Bool) -> Scan:
+  match state wide:
+    case Scan{False{}, escaped, depth, work} True{}:
+      opened = one_if(J.JSON.is_lbrk(c) || J.JSON.is_lbra(c))
+      closed = one_if(J.JSON.is_rbrk(c) || J.JSON.is_rbra(c))
+      counted = one_if(J.JSON.is_quote(c) || J.JSON.is_comma(c) || J.JSON.is_colon(c) ||
+        J.JSON.is_lbrk(c) || J.JSON.is_lbra(c) || J.JSON.is_rbrk(c) || J.JSON.is_rbra(c))
+      Scan{J.JSON.is_quote(c), False{}, U32.sub(U32.add(depth, opened), closed), U32.add(work, counted)}
+    case other flag:
+      scan_step(other, c)
+
+def scan_profile_ok(state: Scan, limit: U32) -> Bool:
+  match state:
+    case Scan{quoted, escaped, depth, work}:
+      U32.is_le(depth, depth_max()) && U32.is_le(work, limit)
+
+def scan_profile(s: String, state: Scan, +bytes: U32, +work: U32, +error: String) -> Result<&1, &1, U32 & String, Unit>:
   match s:
     case SNil{}:
       Done{Unit{}}
@@ -76,10 +95,16 @@ def scan(s: String, state: Scan, +bytes: U32) -> Result<&1, &1, U32 & String, Un
         +code : U32 = Char.to_u32(c)
         +size : U32 = width(code)
         guard(J.JSON.is_scalar(code), "invalid Unicode scalar")
-        guard(U32.is_ge(bytes, size), "JSON exceeds 1 MiB")
-        +next : Scan = scan_step(state, c)
-        guard(scan_ok(next), "JSON depth/work limit")
-        scan(rest, next, U32.sub(bytes, size))
+        guard(U32.is_ge(bytes, size), error)
+        +next : Scan = scan_profile_step(state, c, U32.is_gt(work, work_max()))
+        guard(scan_profile_ok(next, work), "JSON depth/work limit")
+        scan_profile(rest, next, U32.sub(bytes, size), work, error)
+
+def scan_with_error(s: String, state: Scan, bytes: U32, error: String) -> Result<&1, &1, U32 & String, Unit>:
+  scan_profile(s, state, bytes, work_max(), error)
+
+def scan(s: String, state: Scan, bytes: U32) -> Result<&1, &1, U32 & String, Unit>:
+  scan_with_error(s, state, bytes, "JSON exceeds 1 MiB")
 
 def contains(keys: List<&2, String>, +key: String) -> Bool:
   match keys:
@@ -183,6 +208,63 @@ def encode(value: J.JSON) -> Result<&1, &1, U32 & String, String>:
     scan(text, Scan{False{}, False{}, 0, 0}, bytes_max())
     return text
 
+# Large decision payloads opt in explicitly; node/depth/key work budgets do not grow.
+def large_bytes_max() -> U32:
+  16777216
+
+def limit_valid(bytes: U32) -> Result<&1, &1, U32 & String, Unit>:
+  guard(U32.is_le(bytes, large_bytes_max()), "JSON limit exceeds 16 MiB")
+
+def validate_with_limit(+value: J.JSON, +bytes: U32) -> Result<&1, &1, U32 & String, J.JSON>:
+  do Result<&1, &1, U32 & String, J.JSON>:
+    limit_valid(bytes)
+    valid(32768n, [Val{value, 0}], bytes, bytes_max())
+    return value
+
+def read_with_limit(+text: String, +bytes: U32) -> Result<&1, &1, U32 & String, J.JSON>:
+  do Result<&1, &1, U32 & String, J.JSON>:
+    limit_valid(bytes)
+    scan_with_error(text, Scan{False{}, False{}, 0, 0}, bytes, "JSON byte limit")
+    value : J.JSON <- J.JSON.read(text)
+    validate_with_limit(value, bytes)
+
+def encode_with_limit(value: J.JSON, +bytes: U32) -> Result<&1, &1, U32 & String, String>:
+  do Result<&1, &1, U32 & String, String>:
+    checked : J.JSON <- validate_with_limit(value, bytes)
+    +text : String <- J.JSON.write(checked)
+    scan_with_error(text, Scan{False{}, False{}, 0, 0}, bytes, "JSON byte limit")
+    return text
+
+# Explicit high-work profile ONLY for local top_logprobs replies/results. It is
+# never selected by a request field. Regular and byte-only APIs stay unchanged.
+def profile_valid(bytes: U32, work: U32) -> Result<&1, &1, U32 & String, Unit>:
+  do Result<&1, &1, U32 & String, Unit>:
+    limit_valid(bytes)
+    guard(U32.is_le(work, 524288), "JSON profile work exceeds 524288")
+
+def validate_profile(+value: J.JSON, +bytes: U32, +work: U32) -> Result<&1, &1, U32 & String, J.JSON>:
+  do Result<&1, &1, U32 & String, J.JSON>:
+    profile_valid(bytes, work)
+    # A bounded linear key-comparison budget permits repeated small objects;
+    # per-object field/key limits still prevent quadratic object abuse.
+    valid(U32.to_nat(work), [Val{value, 0}], bytes, U32.mul(work, 32))
+    return value
+
+def read_profile(+text: String, +bytes: U32, +work: U32) -> Result<&1, &1, U32 & String, J.JSON>:
+  do Result<&1, &1, U32 & String, J.JSON>:
+    profile_valid(bytes, work)
+    scan_profile(text, Scan{False{}, False{}, 0, 0}, bytes, work, "JSON byte limit")
+    value : J.JSON <- J.JSON.read(text)
+    validate_profile(value, bytes, work)
+
+def encode_profile(value: J.JSON, +bytes: U32, +work: U32) -> Result<&1, &1, U32 & String, String>:
+  do Result<&1, &1, U32 & String, String>:
+    checked : J.JSON <- validate_profile(value, bytes, work)
+    # Writer jobs include punctuation; preserve the standard 4x node-fuel ratio.
+    +text : String <- J.JSON.write_with_fuel(U32.to_nat(U32.mul(work, 4)), checked)
+    scan_profile(text, Scan{False{}, False{}, 0, 0}, bytes, work, "JSON byte limit")
+    return text
+
 def field_pick(found: Bool, value: J.JSON, fallback: Maybe<&2, J.JSON>) -> Maybe<&2, J.JSON>:
   match found:
     case True{}:
@@ -281,7 +363,7 @@ def utf8_step(state: UTF8, +b: U32) -> Result<&1, &1, U32 & String, UTF8>:
         extended : U32 = U32.add(U32.mul(code, 64), U32.sub(b, 128))
         utf8_continue(U32.sub(remaining, 1), extended, minimum, reversed, U32.is_eq(remaining, 1))
 
-def utf8(fuel: Nat, bytes: List<&2, U32>, state: UTF8) -> Result<&1, &1, U32 & String, String>:
+def utf8_with_error(fuel: Nat, bytes: List<&2, U32>, state: UTF8, +error: String) -> Result<&1, &1, U32 & String, String>:
   match fuel bytes:
     case _ Nil{}:
       match state:
@@ -290,11 +372,14 @@ def utf8(fuel: Nat, bytes: List<&2, U32>, state: UTF8) -> Result<&1, &1, U32 & S
         case other:
           Fail{(22, "truncated UTF-8")}
     case 0n _:
-      Fail{(22, "UTF-8 exceeds 1 MiB")}
+      Fail{(22, error)}
     case 1n+f Con{b, tail}:
       do Result<&1, &1, U32 & String, String>:
         next : UTF8 <- utf8_step(state, b)
-        utf8(f, tail, next)
+        utf8_with_error(f, tail, next, error)
+
+def utf8(fuel: Nat, bytes: List<&2, U32>, state: UTF8) -> Result<&1, &1, U32 & String, String>:
+  utf8_with_error(fuel, bytes, state, "UTF-8 exceeds 1 MiB")
 
 def decode_utf8(bytes: List<&2, U32>) -> Result<&1, &1, U32 & String, String>:
   utf8(1048576n, bytes, UTF8{0, 0, 0, SNil{}})
@@ -303,3 +388,18 @@ def read_bytes(bytes: List<&2, U32>) -> Result<&1, &1, U32 & String, J.JSON>:
   do Result<&1, &1, U32 & String, J.JSON>:
     decoded : String <- decode_utf8(bytes)
     read(decoded)
+
+def decode_utf8_with_limit(bytes: List<&2, U32>, +limit: U32) -> Result<&1, &1, U32 & String, String>:
+  do Result<&1, &1, U32 & String, String>:
+    limit_valid(limit)
+    utf8_with_error(U32.to_nat(limit), bytes, UTF8{0, 0, 0, SNil{}}, "UTF-8 byte limit")
+
+def read_bytes_with_limit(bytes: List<&2, U32>, +limit: U32) -> Result<&1, &1, U32 & String, J.JSON>:
+  do Result<&1, &1, U32 & String, J.JSON>:
+    decoded : String <- decode_utf8_with_limit(bytes, limit)
+    read_with_limit(decoded, limit)
+
+def read_bytes_profile(bytes: List<&2, U32>, +limit: U32, work: U32) -> Result<&1, &1, U32 & String, J.JSON>:
+  do Result<&1, &1, U32 & String, J.JSON>:
+    decoded : String <- decode_utf8_with_limit(bytes, limit)
+    read_profile(decoded, limit, work)

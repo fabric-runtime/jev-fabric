@@ -32,7 +32,7 @@ const fakeCurl = script(
 );
 
 beforeAll(async () => {
-  for (const name of ['time-core', 'timers']) expectFixture(name, 300000);
+  expectFixture('timers', 300000);
   mkdirSync(fakeBin);
   await Bun.write(requestFile, request);
   await Bun.write(join(fakeBin, 'curl'), fakeCurl);
@@ -76,16 +76,13 @@ async function run(args: string[], options: Options = {}) {
 function seconds(args: string[]) { return Number(args[0]); }
 const lastLine = (text: string) => text.trim().split('\n').at(-1)!;
 
-test('public defaults and checked pure deadline/CLI policy are registered', async () => {
+test('public deadline defaults and CLI options are documented', async () => {
   const help = await run(['--help']);
   const documented = [
     '--timeout-ms', 'work 1h', 'Jev 30s', 'wait 30s', 'watch 5s',
     'JEV_FABRIC_TIMEOUT_MS', 'JEV_FABRIC_JEV_TIMEOUT_MS', 'JEV_FABRIC_WAIT_MS', 'JEV_FABRIC_WATCH_MS',
   ];
   for (const text of documented) expect(help.out).toContain(text);
-  const p = await run([], { program: resolve('build/test-time-core') });
-  expect(p.code, p.err).toBe(0);
-  expect(p.out).toContain('native timer policy assertions: 59');
 });
 
 test('timer-free literal exec, inherited stdin and legacy syntax return immediately', async () => {

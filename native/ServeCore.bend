@@ -2,6 +2,7 @@ import Base
 import ./Codec.bend as Codec
 import ./Json.bend as Json
 import ./Wire.bend as Wire
+import ./DecisionWire.bend as DecisionWire
 import ./Streams.bend as Streams
 import ./TimeCore.bend as Time
 import ./Cli.bend as Cli
@@ -34,6 +35,8 @@ def features() -> List<&2, String>:
     "durable-input",
     "read",
     "jev-request-credential",
+    "decisions",
+    "decision-targets",
   ]
 
 def strings_json(items: List<&2, String>, first: Bool) -> String:
@@ -59,7 +62,7 @@ def capabilities(version: String, platform: String) -> String:
 
 # A request line has the strict JSON bound; a longer partial line ends the session.
 def line_max() -> U32:
-  1048576
+  16777216
 
 # stdout and stderr each capture up to this many bytes from a CLI child.
 def capture_max() -> U32:
@@ -175,6 +178,10 @@ type Op is Data:
   ListJobs{sessions: Bool}
   Capabilities{}
   Validate{request: J.JSON}
+  DecisionProviders{}
+  ResolveDecision{request: J.JSON}
+  ValidateDecision{request: J.JSON}
+  Decide{request: J.JSON, timeout: Maybe<&2, U32>, credential: String}
   Evaluate{request: J.JSON, timeout: Maybe<&2, U32>, provider: String, credential: String}
 
 def fail(message: String) -> Error:
@@ -662,7 +669,26 @@ def jev_op(+fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
     credential : String <- credential_found(Codec.find_field(fields, "credential"))
     return Evaluate{request, ms, provider, credential}
 
-def op(name: String, fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
+def decision_providers_op(+fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
+  do Result<&1, &1, Error, Op>:
+    allowed(fields, [])
+    return DecisionProviders{}
+
+def decide_op(+fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
+  do Result<&1, &1, Error, Op>:
+    allowed(fields, ["request", "timeoutMs", "credential"])
+    request : J.JSON <- need(fields, "request")
+    ms : Maybe<&2, U32> <- timeout(fields, 3600000)
+    credential : String <- credential_found(Codec.find_field(fields, "credential"))
+    return Decide{request, ms, credential}
+
+def validate_decision_op(+fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
+  do Result<&1, &1, Error, Op>:
+    allowed(fields, ["request"])
+    request : J.JSON <- need(fields, "request")
+    return ValidateDecision{request}
+
+def legacy_op(name: String, fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
   match name:
     case "exec":
       exec_op(fields)
@@ -694,14 +720,54 @@ def op(name: String, fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
       validate_op(fields)
     case "jev":
       jev_op(fields)
+    case "decide":
+      decide_op(fields)
     case other:
-      Fail{fail("unknown op: use exec, start, spawn, write, closeInput, read, status, events, wait, stop, watch, list, capabilities, validate or jev")}
+      Fail{fail("unknown op: use exec, start, spawn, write, closeInput, read, status, events, wait, stop, watch, list, capabilities, validate, jev, decide, validateDecision or decisionProviders")}
 
-def request(value: J.JSON) -> Result<&1, &1, Error, Op>:
+# Equality gates avoid long String-pattern expansion in Bend 2.0.36.
+def decision_validation_op(name: String, fields: List<&2, J.JSON>, yes: Bool) -> Result<&1, &1, Error, Op>:
+  match yes:
+    case True{}: validate_decision_op(fields)
+    case False{}: legacy_op(name, fields)
+
+def discovery_op(+name: String, fields: List<&2, J.JSON>, yes: Bool) -> Result<&1, &1, Error, Op>:
+  match yes:
+    case True{}: decision_providers_op(fields)
+    case False{}: decision_validation_op(name, fields, String.eq(name, "validateDecision"))
+
+def resolve_decision_op(+fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
+  do Result<&1, &1, Error, Op>:
+    allowed(fields, ["request"])
+    request : J.JSON <- need(fields, "request")
+    return ResolveDecision{request}
+
+def resolution_op(+name: String, fields: List<&2, J.JSON>, yes: Bool) -> Result<&1, &1, Error, Op>:
+  match yes:
+    case True{}: resolve_decision_op(fields)
+    case False{}: discovery_op(name, fields, String.eq(name, "decisionProviders"))
+
+def op(+name: String, fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
+  resolution_op(name, fields, String.eq(name, "resolveDecision"))
+
+def request_profile(+value: J.JSON, wide: Bool) -> Result<&1, &1, Error, J.JSON>:
+  match wide:
+    case True{}:
+      Codec.validate_with_limit(value, 16777216)
+    case False{}:
+      do Result<&1, &1, Error, J.JSON>:
+        encoded : String <- Codec.encode(value)
+        return value
+
+def request_limit(value: J.JSON, name: String) -> Result<&1, &1, Error, J.JSON>:
+  request_profile(value, Codec.contains(["decide", "validateDecision", "resolveDecision"], name))
+
+def request(+value: J.JSON) -> Result<&1, &1, Error, Op>:
   do Result<&1, &1, Error, Op>:
     +fields : List<&2, J.JSON> <- object(value)
     id_valid(Codec.find_field(fields, "id"))
-    name : String <- text(fields, "op")
+    +name : String <- text(fields, "op")
+    checked : J.JSON <- request_limit(value, name)
     op(name, fields)
 
 # ---------------------------------------------------------------------------
@@ -938,6 +1004,11 @@ def validated(request: J.JSON) -> Result<&1, &1, Error, String>:
   do Result<&1, &1, Error, String>:
     checked : J.JSON <- Wire.validate_request(request)
     Codec.encode(checked)
+
+def validated_decision(request: J.JSON) -> Result<&1, &1, Error, String>:
+  do Result<&1, &1, Error, String>:
+    checked : J.JSON <- DecisionWire.validate_request(request)
+    Codec.encode_with_limit(checked, 16777216)
 
 def encoded_or_null(value: Result<&1, &1, Error, String>) -> String:
   match value:
