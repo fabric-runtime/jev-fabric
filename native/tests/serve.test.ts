@@ -103,7 +103,7 @@ async function session(args: string[] = [], env: Env = {}) {
 test('serve announces its protocol, version, deadline, budgets and capabilities', async () => {
   const { s, banner } = await session(['--timeout-ms', '60000', '3', '500']);
   expect(banner.ready).toMatchObject({
-    protocol: 2, version: '0.6.0-native', timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500, store: 1,
+    protocol: 2, version: '0.7.0-native', timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500, store: 1,
   });
   expect(Object.keys(banner.ready)).toEqual([
     'protocol', 'version', 'timeoutMs', 'maxEvaluations', 'maxTokens', 'store', 'platform', 'features',
@@ -505,7 +505,7 @@ test('jev takes a per-request provider and credential, never cached, echoed or l
   expect(record(env.CURL_RECORD)).toBe('rrox');
 
   const cases: [Record<string, unknown>, number, string][] = [
-    [{ id: 4, op: 'jev', request: noul, provider: 'elsewhere' }, 2, 'provider must be typesafe, openrouter or vercel'],
+    [{ id: 4, op: 'jev', request: noul, provider: 'elsewhere' }, 2, 'provider must be typesafe, openrouter, vercel or subq'],
     [{ id: 5, op: 'jev', request: noul, credential: '' }, 2, 'credential must be a non-empty string'],
     [{ id: 6, op: 'jev', request: noul, credential: 7 }, 2, 'credential must be a non-empty string'],
     [{ id: 7, op: 'jev', request: noul, credential: `${requestKey}\nsecond line` }, 1, 'Invalid private credential'],

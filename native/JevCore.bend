@@ -23,34 +23,41 @@ type Client is Type:
 def Returned() -> Type:
   Client & Evaluation
 
-def routes(typesafe: Bool, openrouter: Bool, vercel: Bool) -> Result<&1, &1, Error, Route>:
-  match typesafe openrouter vercel:
-    case True{} _ _:
+def routes(typesafe: Bool, openrouter: Bool, vercel: Bool, subq: Bool) -> Result<&1, &1, Error, Route>:
+  match typesafe openrouter vercel subq:
+    case True{} _ _ _:
       Done{Route{
         "https://api.typesafe.ai/v1/systemone",
         "TYPESAFE_API_KEY",
         "jev-latest",
       }}
-    case False{} True{} _:
+    case False{} True{} _ _:
       Done{Route{
         "https://openrouter.ai/api/alpha/decisions",
         "OPENROUTER_API_KEY",
         "typesafe/jev-1.13",
       }}
-    case False{} False{} True{}:
+    case False{} False{} True{} _:
       Done{Route{
         "https://ai-gateway.vercel.sh/typesafe/v1/systemone",
         "AI_GATEWAY_API_KEY",
         "typesafe-ai/jev",
       }}
-    case False{} False{} False{}:
-      Fail{(1, "JEV_PROVIDER must be typesafe, openrouter, or vercel")}
+    case False{} False{} False{} True{}:
+      Done{Route{
+        "https://api.subq.ai/v1/systemone",
+        "SUBQ_API_KEY",
+        "subq-snap-preview",
+      }}
+    case False{} False{} False{} False{}:
+      Fail{(1, "JEV_PROVIDER must be typesafe, openrouter, vercel, or subq")}
 
 def route(+provider: String) -> Result<&1, &1, Error, Route>:
   routes(
     String.is_empty(provider) || String.eq(provider, "typesafe"),
     String.eq(provider, "openrouter"),
     String.eq(provider, "vercel"),
+    String.eq(provider, "subq"),
   )
 
 def env_value(r: Result<&1, &1, Error, String>) -> String:

@@ -425,7 +425,10 @@ def base64_padding(reversed: String) -> Nat:
 def decoded_bytes(+data: String) -> Nat:
   Nat.sub(Nat.mul(Nat.div(String.length(data), 4n), 3n), base64_padding(String.reverse(data)))
 
-def cloudflare_image_rows(items: List<&2, J.JSON>, +remaining: Nat) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+# Clef and SubQ Snap take the same inline images under the same limits (at most
+# 4; PNG, JPEG or WebP; 4 MiB decoded each, 8 MiB in total). Only the name of
+# the media-type key differs: `content_type` and `mediaType`.
+def flat_image_rows(items: List<&2, J.JSON>, +remaining: Nat, +type_key: String, +label: String) -> Result<&1, &1, Error, List<&2, J.JSON>>:
   match items:
     case Nil{}: Done{Nil{}}
     case Con{+image, tail}:
@@ -434,21 +437,27 @@ def cloudflare_image_rows(items: List<&2, J.JSON>, +remaining: Nat) -> Result<&1
         +data : String <- W.string(d)
         m : J.JSON <- W.need(image, "mimeType")
         +mime : String <- W.string(m)
-        Codec.guard(Codec.contains(["image/png", "image/jpeg", "image/webp"], mime), "unsupported Cloudflare image MIME")
+        Codec.guard(Codec.contains(["image/png", "image/jpeg", "image/webp"], mime), "unsupported " ++ label ++ " image MIME")
         +n : Nat = decoded_bytes(data)
-        Codec.guard(Nat.is_le(n, 4194304n) && Nat.is_le(n, remaining), "Cloudflare decoded image byte limit")
-        rest : List<&2, J.JSON> <- cloudflare_image_rows(tail, Nat.sub(remaining, n))
-        return Con{J.Obj{[J.Member{"content_type", J.Str{mime}}, J.Member{"base64", J.Str{data}}]}, rest}
+        Codec.guard(Nat.is_le(n, 4194304n) && Nat.is_le(n, remaining), label ++ " decoded image byte limit")
+        rest : List<&2, J.JSON> <- flat_image_rows(tail, Nat.sub(remaining, n), type_key, label)
+        return Con{J.Obj{[J.Member{type_key, J.Str{mime}}, J.Member{"base64", J.Str{data}}]}, rest}
 
-def cloudflare_images(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+def flat_images(value: Maybe<&2, J.JSON>, type_key: String, +label: String) -> Result<&1, &1, Error, List<&2, J.JSON>>:
   match value:
     case None{}: Done{Nil{}}
     case Some{v}:
       do Result<&1, &1, Error, List<&2, J.JSON>>:
         +items : List<&2, J.JSON> <- W.array(v)
-        Codec.guard(Nat.is_le(List.length(&2, J.JSON, items), 4n), "Cloudflare image count limit")
-        rows : List<&2, J.JSON> <- cloudflare_image_rows(items, 8388608n)
+        Codec.guard(Nat.is_le(List.length(&2, J.JSON, items), 4n), label ++ " image count limit")
+        rows : List<&2, J.JSON> <- flat_image_rows(items, 8388608n, type_key, label)
         return [J.Member{"images", J.Arr{rows}}]
+
+def cloudflare_image_rows(items: List<&2, J.JSON>, remaining: Nat) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  flat_image_rows(items, remaining, "content_type", "Cloudflare")
+
+def cloudflare_images(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  flat_images(value, "content_type", "Cloudflare")
 
 def clef_body(state: J.JSON, +qs: List<&2, J.JSON>, +req: J.JSON, model: String) -> Result<&1, &1, Error, String>:
   do Result<&1, &1, Error, String>:
@@ -561,6 +570,22 @@ def openai_options_tag(value: Maybe<&2, J.JSON>, provider: String, tag: U32) -> 
 def openai_options(value: Maybe<&2, J.JSON>, +provider: String) -> Result<&1, &1, Error, List<&2, J.JSON>>:
   openai_options_tag(value, provider, Bool.pick(U32, String.eq(provider, "vercel-decisions"), 1, 0))
 
+# SubQ's SystemOne documents inline images and a 13 MiB request body:
+# https://docs.subq.ai/endpoints/decisions-api/#images
+# The other SystemOne routes document no image shape, so they take none.
+def system_one_images(value: Maybe<&2, J.JSON>, subq: Bool) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  match subq:
+    case True{}: flat_images(value, "mediaType", "SubQ")
+    case False{}:
+      do Result<&1, &1, Error, List<&2, J.JSON>>:
+        no_images(value)
+        return Nil{}
+
+def system_one_bytes(subq: Bool) -> U32:
+  match subq:
+    case True{}: 13631488
+    case False{}: bytes_max()
+
 def model_extras(model: String, extras: Result<&1, &1, Error, List<&2, J.JSON>>) -> Result<&1, &1, Error, List<&2, J.JSON>>:
   match extras:
     case Fail{e}: Fail{e}
@@ -584,10 +609,11 @@ def native_body_for_tag(state: J.JSON, qs: List<&2, J.JSON>, +req: J.JSON, +api:
     case unmatched:
       do Result<&1, &1, Error, String>:
         Codec.guard(Codec.contains(["system-one", "vercel-evaluate"], api), "unsupported decision API")
-        no_images(Codec.field(req, "images"))
+        +subq : Bool = String.eq(api, "system-one") && String.eq(provider_name(Codec.field(req, "provider")), "subq")
+        imgs : List<&2, J.JSON> <- system_one_images(Codec.field(req, "images"), subq)
         questions : List<&2, J.JSON> <- standard_questions(qs, api)
         extras : List<&2, J.JSON> <- native_extras(req, api, model)
-        Codec.encode_with_limit(J.Obj{Con{J.Member{"state", state}, Con{J.Member{"questions", J.Obj{questions}}, extras}}}, bytes_max())
+        Codec.encode_with_limit(J.Obj{Con{J.Member{"state", state}, Con{J.Member{"questions", J.Obj{questions}}, List.append(&2, J.JSON, extras, imgs)}}}, system_one_bytes(subq))
 
 def native_body_for(state: J.JSON, qs: List<&2, J.JSON>, +req: J.JSON, +api: String, model: String) -> Result<&1, &1, Error, String>:
   native_body_for_tag(state, qs, req, api, model, Bool.pick(U32, String.eq(api, "cloudflare"), 1, Bool.pick(U32, String.eq(api, "llama-system-one"), 2, Bool.pick(U32, String.eq(api, "openai-decisions"), 3, 0))))

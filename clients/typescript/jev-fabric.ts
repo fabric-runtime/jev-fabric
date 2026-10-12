@@ -666,7 +666,7 @@ export class Fabric {
    */
   jev(
     request: JevRequest,
-    options: { timeoutMs?: number; provider?: 'typesafe' | 'openrouter' | 'vercel'; credential?: string } = {},
+    options: { timeoutMs?: number; provider?: 'typesafe' | 'openrouter' | 'vercel' | 'subq'; credential?: string } = {},
   ): Promise<JevAnswer> {
     return this.call('jev', {
       request,

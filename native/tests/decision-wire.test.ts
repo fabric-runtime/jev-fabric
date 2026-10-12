@@ -120,6 +120,22 @@ describe('pure Bend decision requests', () => {
     expect(wrapped).toEqual({ model: 'typesafe/jev', input: { state: {}, questions: { q: { ...q(), type: 'noul' } } } });
     rejected('body', req(undefined, { images: [image] }), 'cloudflare', 'typesafe/jev');
   });
+  test('SubQ SystemOne takes inline images; the other SystemOne routes take none', () => {
+    // https://docs.subq.ai/endpoints/decisions-api/#images
+    const image = { type: 'image', data: 'AA==', mimeType: 'image/png' };
+    const r = (extra: object = {}) => req(undefined, { provider: 'subq', ...extra });
+    const got = body(r({ images: [image] }), 'system-one', 'subq-snap-preview');
+    expect(got).toEqual({ state: {}, questions: { q: { ...q(), type: 'noul' } }, model: 'subq-snap-preview', images: [{ mediaType: 'image/png', base64: 'AA==' }] });
+    expect(body(r(), 'system-one', 'subq-snap-preview').images).toBeUndefined();
+    body(r({ images: Array(4).fill(image) }), 'system-one', 'subq-snap-preview');
+    rejected('body', r({ images: Array(5).fill(image) }), 'system-one', 'subq-snap-preview');
+    rejected('body', r({ images: [{ ...image, mimeType: 'image/gif' }] }), 'system-one', 'subq-snap-preview');
+    rejected('body', r({ providerOptions: {} }), 'system-one', 'subq-snap-preview');
+    for (const provider of [undefined, 'typesafe', 'openrouter', 'opencode']) {
+      rejected('body', req(undefined, { ...(provider ? { provider } : {}), images: [image] }), 'system-one', 'jev-latest');
+    }
+    rejected('body', r({ images: [image] }), 'vercel-evaluate', 'typesafe-ai/jev');
+  });
   test('Cloudflare follows the flat Clef image schema and tighter question limits', () => {
     // https://developers.cloudflare.com/workers-ai/models/clef/schema-input.json
     const image = { type: 'image', data: 'AA==', mimeType: 'image/png' };

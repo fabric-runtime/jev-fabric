@@ -53,6 +53,7 @@ def auth_for(+api: String) -> String:
 def presets() -> List<&2, Settings>:
   [
     Settings{"typesafe", "system-one", "https://api.typesafe.ai/v1/systemone", "jev-latest", "TYPESAFE_API_KEY", "bearer", False{}},
+    Settings{"subq", "system-one", "https://api.subq.ai/v1/systemone", "subq-snap-preview", "SUBQ_API_KEY", "bearer", False{}},
     Settings{"openrouter", "system-one", "https://openrouter.ai/api/v1/systemone", "typesafe/jev-1.13", "OPENROUTER_API_KEY", "bearer", False{}},
     Settings{"vercel", "system-one", "https://ai-gateway.vercel.sh/typesafe/v1/systemone", "typesafe-ai/jev", "AI_GATEWAY_API_KEY", "bearer", False{}},
     Settings{"vercel-evaluate", "vercel-evaluate", "https://ai-gateway.vercel.sh/v1/evaluate", "typesafe-ai/jev", "AI_GATEWAY_API_KEY", "bearer", False{}},
@@ -164,8 +165,10 @@ def images_present(value: Maybe<&2, J.JSON>) -> Result<&1, &1, U32 & String, Boo
 # Capabilities describe implemented wire adapters, never guessed from model IDs.
 # OpenRouter SystemOne has no documented image shape. llama-cpp is the local
 # chat/logprob classifier, not llama-server's separate multimodal SystemOne API.
-def image_capable(provider: String, +api: String, model: String) -> Bool:
+# SubQ's SystemOne documents one: https://docs.subq.ai/endpoints/decisions-api/#images
+def image_capable(+provider: String, +api: String, model: String) -> Bool:
   (String.eq(api, "cloudflare") && cloud_model(model)) || String.eq(api, "llama-system-one") ||
+  (String.eq(api, "system-one") && String.eq(provider, "subq")) ||
   (String.eq(api, "openai-decisions") && Bool.not(String.eq(provider, "vercel-decisions"))) ||
   String.eq(api, "anthropic") || String.eq(api, "google")
 
@@ -253,7 +256,7 @@ def discovery_endpoint(+provider: String, endpoint: String, model: String) -> St
 
 def image_support(+provider: String, +api: String) -> String:
   Bool.pick(String, String.eq(provider, "custom") || String.eq(api, "cloudflare") || String.eq(api, "llama-system-one"),
-    "model-dependent", Bool.pick(String, String.eq(provider, "openai") || String.eq(api, "anthropic") || String.eq(api, "google"),
+    "model-dependent", Bool.pick(String, String.eq(provider, "openai") || String.eq(provider, "subq") || String.eq(api, "anthropic") || String.eq(api, "google"),
       "supported", "unsupported"))
 
 def descriptor(result: Result<&1, &1, U32 & String, Settings>) -> J.JSON:

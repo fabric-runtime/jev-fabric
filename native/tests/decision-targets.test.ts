@@ -223,6 +223,11 @@ test('resolved image capabilities reflect Cloudflare models and real adapter con
   rejected({ provider: 'openai', images: ['https://example.com/image.png'] });
   rejected({ provider: 'openai', images: [{ ...image, data: 'bad=' }] });
   expect(resolution({ provider: 'openai', images: [image] }).imageSupport).toBe('supported');
+  const subq = resolution({ provider: 'subq', images: [image] });
+  expect(subq.imageSupport).toBe('supported');
+  expect(subq.target).toMatchObject({ provider: 'subq', api: 'system-one', model: 'subq-snap-preview', endpoint: 'https://api.subq.ai/v1/systemone' });
+  expect(subq.credential).toEqual({ env: 'SUBQ_API_KEY', resolved: false });
+  rejected({ provider: 'subq', images: Array(5).fill(image) });
 });
 
 test('Local preflight and generated adapter opt-ins run offline', () => {

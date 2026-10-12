@@ -117,8 +117,8 @@ jev-fabric -- jev request.json 10000                 # one call, ≤10000 report
 Provider and credentials come from the environment and are never printed:
 
 ```bash
-export JEV_PROVIDER=typesafe          # or openrouter | vercel
-export TYPESAFE_API_KEY=...           # or a literal argv resolver:
+export JEV_PROVIDER=typesafe          # or openrouter | vercel | subq
+export TYPESAFE_API_KEY=...           # (subq: SUBQ_API_KEY) or a literal argv resolver:
 export JEV_CREDENTIAL_COMMAND='["pass","show","typesafe"]'
 ```
 

@@ -104,8 +104,8 @@ dispatch (code 124) instead of starting work.
 
 | Variable | Effect |
 | --- | --- |
-| `JEV_PROVIDER` | `typesafe` (default), `openrouter` or `vercel` |
-| `TYPESAFE_API_KEY` / `OPENROUTER_API_KEY` / `AI_GATEWAY_API_KEY` | Provider key |
+| `JEV_PROVIDER` | `typesafe` (default), `openrouter`, `vercel` or `subq` |
+| `TYPESAFE_API_KEY` / `OPENROUTER_API_KEY` / `AI_GATEWAY_API_KEY` / `SUBQ_API_KEY` | Provider key |
 | `JEV_CREDENTIAL_COMMAND` | JSON argv printing the key, e.g. `["pass","show","jev"]` |
 | `JEV_MODEL` | Model override |
 | `JEV_FABRIC_HTTP` | `auto` (default: pooled libcurl, curl fallback), `pooled` or `exec` |

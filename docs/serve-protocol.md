@@ -179,7 +179,7 @@ Error codes follow the CLI:
   `"lifetime":"session"`). The store listing never includes session children.
 - `request` for `jev`/`validate` is validated as `jev-fabric -- validate`. For
   `decide`/`validateDecision`, use the [additive decision schema](decisions.md#request).
-- `provider` (`"typesafe"`, `"openrouter"` or `"vercel"`) and `credential` (a
+- `provider` (`"typesafe"`, `"openrouter"`, `"vercel"` or `"subq"`) and `credential` (a
   non-empty string) apply to one `jev` request only; see [Jev](#jev).
 
 A nonzero exit is a receipt with `"state":"failed"`, not an error. Errors mean the

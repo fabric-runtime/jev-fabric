@@ -665,7 +665,7 @@ def jev_op(+fields: List<&2, J.JSON>) -> Result<&1, &1, Error, Op>:
     allowed(fields, ["request", "timeoutMs", "provider", "credential"])
     request : J.JSON <- need(fields, "request")
     ms : Maybe<&2, U32> <- timeout(fields, 3600000)
-    provider : String <- choice(Codec.find_field(fields, "provider"), "", ["typesafe", "openrouter", "vercel"], "provider must be typesafe, openrouter or vercel")
+    provider : String <- choice(Codec.find_field(fields, "provider"), "", ["typesafe", "openrouter", "vercel", "subq"], "provider must be typesafe, openrouter, vercel or subq")
     credential : String <- credential_found(Codec.find_field(fields, "credential"))
     return Evaluate{request, ms, provider, credential}
 

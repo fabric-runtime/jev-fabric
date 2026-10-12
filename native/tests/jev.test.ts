@@ -26,7 +26,7 @@ const config = await Bun.stdin.text();
 const args = process.argv.slice(2);
 if (!config.includes('Authorization: Bearer ${secret}')) process.exit(9);
 if (args.some(arg => arg.includes('${secret}'))) process.exit(10);
-const record = { args, model: config.includes('jev-test-model') };
+const record = { args, model: config.includes('jev-test-model'), subq: config.includes('https://api.subq.ai/v1/systemone') };
 appendFileSync(process.env.CURL_RECORD!, JSON.stringify(record) + '\\n');
 if (process.env.FAIL_CURL) {
   process.stdout.write('${secret}');
@@ -91,7 +91,8 @@ async function run(options: Options = {}) {
     // The fake curl above stands in for the network; the pooled libcurl
     // transport would bypass it, so force the curl executable.
     JEV_FABRIC_HTTP: 'exec',
-    TYPESAFE_API_KEY: options.key ?? secret,
+    // Each provider reads its own key variable and no other.
+    [options.provider === 'subq' ? 'SUBQ_API_KEY' : 'TYPESAFE_API_KEY']: options.key ?? secret,
     JEV_PROVIDER: options.provider ?? 'typesafe',
     JEV_MODEL: 'jev-test-model',
     JEV_CREDENTIAL_COMMAND: options.command ?? '',
@@ -124,6 +125,14 @@ test('native client normalizes typed replies and keeps secrets out of argv/outpu
   }
   expect(r.rows[0].args[0]).toBe('--disable');
   expect(r.rows[0].args).toContain('=https');
+});
+
+test('JEV_PROVIDER=subq sends the same request to SubQ with SUBQ_API_KEY', async () => {
+  const r = await run({ provider: 'subq' });
+  expect(r.code, r.err).toBe(0);
+  expect(r.rows.length).toBe(2);
+  expect(r.rows.every(x => x.subq && x.model)).toBe(true);
+  expect((await run()).rows.some(x => x.subq)).toBe(false);
 });
 
 test('credential argv resolves privately once then caches in threaded client', async () => {

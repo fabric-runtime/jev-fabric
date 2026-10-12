@@ -1,20 +1,16 @@
 Native process orchestration with typed, explicit Jev decisions.
 
-## Changes in 0.6.0
+## Changes in 0.7.0
 
-- Add lossless `decide` results across native decision, gateway, local llama.cpp,
-  and explicitly opted-in generated-decision protocols. Preserve raw evidence,
-  distributions, refusals, provenance and unknown usage rather than inventing it.
-- Support inline images on verified image-capable routes; reject unsupported
-  combinations before credentials or dispatch.
-- Add portable named profiles, immutable TypeScript/Python target handles,
-  offline `resolve-decision` preflight and CLI target-selection flags.
-- Keep model switches within the same session and shared evaluation/token budget.
-  Explicit targets do not inherit another provider's ambient model or endpoint.
-- Add checked universal decision-policy laws, retain foreign/serialization/host
-  boundary tests, and consolidate pure-policy fixture compilation.
-- Preserve legacy `jev` behavior, protocol 2 and store format 1. New operations
-  are advertised through capability negotiation. Requires Bend 2.0.36 to compile.
+- Add [SubQ Snap](https://docs.subq.ai/), a System One model with the TypeSafe
+  contract. Legacy `jev` routes to it with `JEV_PROVIDER=subq` and
+  `SUBQ_API_KEY` (model `subq-snap-preview`); `serve` accepts
+  `"provider":"subq"` per request.
+- `decide` gains the `subq` preset (14 in all). It is the first SystemOne route
+  that takes inline images: up to 4 PNG, JPEG or WebP images, 4 MiB decoded
+  each and 8 MiB in total, sent as `{mediaType, base64}`.
+- Unchanged: protocol 2, store format 1, and every existing route and default.
+  A session that names `subq` needs this version on both ends.
 
 ## Install
 

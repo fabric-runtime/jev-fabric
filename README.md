@@ -159,6 +159,10 @@ jev-fabric -- jev examples/native/request.json 10000         # one billed call
   pooled TLS connection: verified certificates, no redirects, no proxies, 1 MiB
   bound. `JEV_FABRIC_HTTP=exec` forces a fresh `curl` process per request.
 
+[SubQ Snap](https://docs.subq.ai/) is a System One model with the same contract:
+`JEV_PROVIDER=subq` and `SUBQ_API_KEY` send the same request to
+`subq-snap-preview`. Through `decide` (`"provider": "subq"`) it also takes images.
+
 ## Additive lossless decisions
 
 `decide` supports native decision APIs, opt-in generated estimates and local

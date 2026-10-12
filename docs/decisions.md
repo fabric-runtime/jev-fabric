@@ -98,7 +98,7 @@ try {
 Discovery lists **registered preset definitions**, not live service models,
 credential availability or verified account access. Defaults below come from
 [`DecisionConfig.bend`](../native/DecisionConfig.bend); a model name is not proof
-that it exists or is enabled on your account. Discovery returns an array of 13
+that it exists or is enabled on your account. Discovery returns an array of 14
 objects with `provider`, `api`, `defaultModel`, `endpoint`, `credentialEnv`,
 `imageSupport` (`supported`, `unsupported`, `model-dependent`) and `generated`.
 `custom` has empty defaults; Cloudflare's endpoint contains an account placeholder.
@@ -107,6 +107,7 @@ Image support describes the adapter, not every model behind it.
 | `provider` | `api` | Default model | Default endpoint | Key variable |
 | --- | --- | --- | --- | --- |
 | `typesafe` | `system-one` | `jev-latest` | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` |
+| `subq` | `system-one` | `subq-snap-preview` | `https://api.subq.ai/v1/systemone` | `SUBQ_API_KEY` |
 | `openrouter` | `system-one` | `typesafe/jev-1.13` | `https://openrouter.ai/api/v1/systemone` | `OPENROUTER_API_KEY` |
 | `vercel` | `system-one` | `typesafe-ai/jev` | `https://ai-gateway.vercel.sh/typesafe/v1/systemone` | `AI_GATEWAY_API_KEY` |
 | `vercel-evaluate` | `vercel-evaluate` | `typesafe-ai/jev` | `https://ai-gateway.vercel.sh/v1/evaluate` | `AI_GATEWAY_API_KEY` |
@@ -165,7 +166,7 @@ Gateway fallback is an **explicit provider option**, not an HTTP retry by this
 client, and may bill multiple stages. Consult the gateway's routing contract.
 Direct OpenAI accepts only `providerOptions.safety_identifier` (null or a
 nonempty printable string up to 64 scalars), forwarded as a top-level body
-field. TypeSafe, OpenCode, Cloudflare and local adapters reject provider options.
+field. TypeSafe, SubQ, OpenCode, Cloudflare and local adapters reject provider options.
 
 Anthropic and Google require `allowGenerated:true`. They generate schema-bound
 answers, **not native probability distributions**. Their boolean probability is
@@ -203,6 +204,7 @@ apply. It validates encoding and MIME, not image pixels.
 | Direct OpenAI `openai-decisions` | Inline `input_image` parts with `image_url` data URLs; PNG/JPEG/WebP/GIF |
 | Cloudflare Clef/Flash | `{content_type, base64}` objects; PNG/JPEG/WebP; at most 4 images, 4 MiB decoded each, 8 MiB decoded total, 13 MiB encoded request body. The documented 16-megapixel/image limit is checked by the server, not locally |
 | Cloudflare Jev/other models | No images |
+| SubQ `system-one` | `{mediaType, base64}` objects; PNG/JPEG/WebP; at most 4 images, 4 MiB decoded each, 8 MiB decoded total, 13 MiB encoded request body |
 | `llama-system-one` | Inline image data URL strings; needs a multimodal model and server `--mmproj` |
 | `llama-cpp` chat/logprobs | No images; separate from native SystemOne |
 | Anthropic | Generated opt-in; inline base64 image source, PNG/JPEG/WebP/GIF |
@@ -357,6 +359,7 @@ Primary references recorded by those modules and the
 [routing evidence notes](../native/tests/decision-routing-notes.md):
 
 - [TypeSafe API](https://docs.typesafe.ai/api.md) and [models](https://docs.typesafe.ai/models.md).
+- [SubQ Decisions API](https://docs.subq.ai/endpoints/decisions-api/) and [models](https://docs.subq.ai/using-the-api/models/).
 - [OpenRouter SystemOne](https://openrouter.ai/docs/client-sdks/typescript/sdks/systemone/README.md) and [request schema](https://openrouter.ai/docs/client-sdks/typescript/models/decisionsrequest.md).
 - [Vercel decisions](https://vercel.com/docs/ai-gateway/modalities/decision) and [OpenAI Decisions compatibility](https://vercel.com/docs/ai-gateway/sdks-and-apis/openai-decisions).
 - [OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions.md).
@@ -365,6 +368,8 @@ Primary references recorded by those modules and the
 - Anthropic [Messages](https://platform.claude.com/docs/en/api/messages/create) and [structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
 - Google [GenerationConfig](https://ai.google.dev/api/generate-content#GenerationConfig), [TextResponseFormat](https://ai.google.dev/api/generate-content#TextResponseFormat) and [images](https://ai.google.dev/gemini-api/docs/image-understanding).
 
-These are wire-format references, not live conformance certificates. No paid or
-live provider calls were performed for this documentation; model availability,
-account access and full vendor conformance are not claimed.
+These are wire-format references, not live conformance certificates. SubQ is
+the one route exercised live for this documentation (2026-10-13,
+`subq-snap-preview`): `jev`, `decide` with and without an image, and its 401 and
+422 replies. No other paid or live provider calls were performed; model
+availability, account access and full vendor conformance are not claimed.

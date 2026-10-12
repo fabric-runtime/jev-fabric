@@ -25,10 +25,10 @@ function config(request: object | string = {}, provider = '', model = '', endpoi
 }
 const account = '0123456789abcdef0123456789abcdef';
 
-test('canonical presets, verified defaults and pure13-provider discovery', () => {
+test('canonical presets, verified defaults and pure 14-provider discovery', () => {
   const providers = JSON.parse(run(['providers']));
-  expect(providers).toHaveLength(13);
-  expect(new Set(providers.map((p: any) => p.provider)).size).toBe(13);
+  expect(providers).toHaveLength(14);
+  expect(new Set(providers.map((p: any) => p.provider)).size).toBe(14);
   expect(providers.some((p: any) => p.provider === 'vercel-ai-gateway')).toBe(false);
   for (const p of providers) {
     expect(Object.keys(p).sort()).toEqual(['api', 'credentialEnv', 'defaultModel', 'endpoint', 'generated', 'imageSupport', 'provider'].sort());
@@ -46,6 +46,9 @@ test('canonical presets, verified defaults and pure13-provider discovery', () =>
   expect(config({}, 'vercel-decisions').model).toBe('openai/gpt-6-luna-decisions');
   expect(config({}, 'openai').model).toBe('gpt-6-luna');
   expect(config({}, 'opencode').model).toBe('jev-1.13');
+  expect(config({}, 'subq')).toMatchObject({ api: 'system-one', endpoint: 'https://api.subq.ai/v1/systemone', model: 'subq-snap-preview', key_env: 'SUBQ_API_KEY', auth: 'bearer' });
+  expect(providers.find((p: any) => p.provider === 'subq').imageSupport).toBe('supported');
+  expect(config({ images: [{ data: 'AA==', mimeType: 'image/png' }] }, 'subq').provider).toBe('subq');
   expect(config({ allowLocal: true }, 'llama.cpp').endpoint).toBe('http://127.0.0.1:8080');
   expect(config({ allowLocal: true }, 'llama-system-one').endpoint).toBe('http://127.0.0.1:8080/v1/systemone');
   expect(config({ provider: 'vercel-ai-gateway' }).provider).toBe('vercel');

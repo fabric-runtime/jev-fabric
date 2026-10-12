@@ -286,6 +286,7 @@ Provider configuration:
 | `typesafe` (default) | `TYPESAFE_API_KEY` | `jev-latest` |
 | `openrouter` | `OPENROUTER_API_KEY` | `typesafe/jev-1.13` |
 | `vercel` | `AI_GATEWAY_API_KEY` | `typesafe-ai/jev` |
+| `subq` | `SUBQ_API_KEY` | `subq-snap-preview` |
 
 Routes are fixed in `Jev.route`; `JEV_MODEL` overrides the default. A request's
 explicit model takes precedence. `JEV_CREDENTIAL_COMMAND` is a JSON argv array,
