@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 export BEND_NO_TELEMETRY=1
+# Bend's code generator runs on Bun's JavaScriptCore, whose heap otherwise grows
+# to ~12 GB on this program and pages to swap on a 16 GB Mac. Capping the RAM
+# JSC assumes keeps it in memory; the emitted C is byte-identical.
+export BUN_JSC_forceRAMSize=${BUN_JSC_forceRAMSize:-4294967296}
 cd "$(dirname "$0")/.."
 sh scripts/build-native.sh
 # The safety gate in build-native.sh already checked every example module.
