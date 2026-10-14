@@ -29,7 +29,7 @@ test('python client passes its offline suite', async () => {
 
 test('typescript client reports the session and returns receipts', async () => {
   const fabric = await open({ timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500 });
-  expect(fabric.ready).toMatchObject({ protocol: 2, version: '0.7.0-native', timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500, store: 1 });
+  expect(fabric.ready).toMatchObject({ protocol: 2, version: '0.7.1-native', timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500, store: 1 });
   expect(await fabric.capabilities()).toMatchObject({ protocol: 2, store: 1, features: fabric.ready.features });
   expect((await fabric.exec(['/bin/echo', 'hi'])).stdout).toBe('hi\n');
   expect((await fabric.exec(['/bin/cat'], { stdin: 'piped' })).stdout).toBe('piped');

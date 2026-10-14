@@ -6,7 +6,7 @@ import { expectFixture } from './helpers.ts';
 function fixture(pure = 'import Base\ndef value() -> Nat:\n  0n\n') {
   const manifest: Manifest = {
     schemaVersion: 1,
-    compiler: 'bend 2.0.36',
+    compiler: 'bend 2.0.37',
     pure: ['native/Pure.bend'],
     proofs: [],
     drivers: ['native/Driver.bend'],

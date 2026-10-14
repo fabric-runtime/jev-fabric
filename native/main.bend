@@ -210,7 +210,7 @@ def dispatch_legacy(args: List<String>) -> IO(Unit):
     case Con{"--help", Nil{}}:
       usage()
     case Con{"--version", Nil{}}:
-      IO.print(Cli.version() ++ " (Bend 2.0.36)")
+      IO.print(Cli.version() ++ " (Bend 2.0.37)")
     case Con{"update", Nil{}}:
       update()
     case Con{"capabilities", Nil{}}:

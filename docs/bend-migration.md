@@ -22,7 +22,7 @@ the native executable, through the thin Python and TypeScript clients in
 
 ## Minimal practical bridge
 
-Stock Bend (now 2.0.36) has native files, sockets, clocks, channels and
+Stock Bend (now 2.0.37) has native files, sockets, clocks, channels and
 concurrent IO, and since 2.0.28 a bounded `Process.run`, but no child-process
 group ownership, detached jobs or HTTPS stack. Pure Bend libraries supply the
 JSON/UTF-8 and typed decision logic; the system libcurl supplies verified,
@@ -63,6 +63,25 @@ access cannot be dropped merely to minimize line count.
   inside such supervision.
 - System libcurl/curl, compiler, imported native programs, PATH and CA
   configuration are trusted. Keys stay out of argv/logs but are accessible to their owning process.
+
+## Bend 2.0.37 migration
+
+The current compiler is Bend 2.0.37. Its official macOS arm64 archive matches
+the upstream release digest; the installed compiler is byte-identical and passes
+`codesign --verify --strict`. No project source changed.
+
+- `io_eff(cid, run)` keeps its two-argument shape. The effect table is now sized
+  to the program's constructor ids, which project registrations already use.
+- The runtime helpers the project C calls are all still emitted (`io_tick` among
+  them); clang still gets `-std=c11 -O3 -lpthread -lm`, as the release workflow does.
+- A `Nat` crossing to a JS host is now a plain number, not a `BigInt`; the native
+  build has no JS host. `IO.die` codes here are 1 and 2, well under the new
+  255 limit, and nothing passes `F32.show` as a function.
+
+Local macOS arm64 verification passed: the safety gate across 81 modules, 22
+pure modules, four proof roots and 11 explicit foreign effects; the native
+fixtures; and 317 offline tests (6,004 assertions). `--version` reports
+`0.7.1-native (Bend 2.0.37)`. No live model calls were made.
 
 ## Bend 2.0.36 migration
 

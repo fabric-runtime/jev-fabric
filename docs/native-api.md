@@ -1,6 +1,6 @@
 # Native API and execution contract
 
-Use stock Bend 2.0.36 native compilation. Imports below are relative to your
+Use stock Bend 2.0.37 native compilation. Imports below are relative to your
 source file; see `examples/native/`. Native code, PATH executables and imported
 modules are trusted. Affine ownership is a programming discipline, not secret
 isolation from the program that owns the client.

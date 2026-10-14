@@ -1,16 +1,13 @@
 Native process orchestration with typed, explicit Jev decisions.
 
-## Changes in 0.7.0
+## Changes in 0.7.1
 
-- Add [SubQ Snap](https://docs.subq.ai/), a System One model with the TypeSafe
-  contract. Legacy `jev` routes to it with `JEV_PROVIDER=subq` and
-  `SUBQ_API_KEY` (model `subq-snap-preview`); `serve` accepts
-  `"provider":"subq"` per request.
-- `decide` gains the `subq` preset (14 in all). It is the first SystemOne route
-  that takes inline images: up to 4 PNG, JPEG or WebP images, 4 MiB decoded
-  each and 8 MiB in total, sent as `{mediaType, base64}`.
-- Unchanged: protocol 2, store format 1, and every existing route and default.
-  A session that names `subq` needs this version on both ends.
+- Built with Bend 2.0.37 (was 2.0.36). No source change was needed: the native
+  effect ABI (`io_eff`) is unchanged, and 2.0.37's breaking change, a `Nat`
+  crossing to a JavaScript host as a plain number, does not touch the native
+  build.
+- Compiling your own `jev-fabric -- run` programs now needs Bend 2.0.37.
+- Unchanged: protocol 2, store format 1, every route, preset and default.
 
 ## Install
 
@@ -31,4 +28,4 @@ Each archive holds the `jev-fabric` executable, the Bend library (`native/`) for
 `jev-fabric -- run` programs, single-file Python and TypeScript clients
 (`clients/`) for `jev-fabric -- serve` sessions, the examples and the agent skill. Verify with
 `SHA256SUMS`; the installer does this for you. Jev calls need the system libcurl or
-`curl` and a CA store; compiling your own Bend programs needs Bend 2.0.36.
+`curl` and a CA store; compiling your own Bend programs needs Bend 2.0.37.

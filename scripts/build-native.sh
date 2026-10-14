@@ -10,9 +10,9 @@ version=$(bend version) || {
   printf '%s\n' 'Bend could not run; verify the compiler installation.' >&2
   exit 1
 }
-if [ "$version" != 'bend 2.0.36' ]; then
+if [ "$version" != 'bend 2.0.37' ]; then
   printf '%s\n' \
-    'Native effect ABI tested with Bend 2.0.36; review before changing compiler versions.' >&2
+    'Native effect ABI tested with Bend 2.0.37; review before changing compiler versions.' >&2
   exit 1
 fi
 mkdir -p build

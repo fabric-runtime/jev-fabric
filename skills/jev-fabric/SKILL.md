@@ -16,7 +16,7 @@ command starts with `jev-fabric --`.
 ## Check the install
 
 ```bash
-jev-fabric -- --version        # 0.5.1-native (Bend 2.0.36)
+jev-fabric -- --version        # 0.7.1-native (Bend 2.0.37)
 jev-fabric -- capabilities     # {"version":…,"protocol":2,"store":1,"platform":…,"features":[…]}
 ```
 
@@ -220,7 +220,7 @@ shared deadline scopes (a game bot, a crawler, a supervisor), write a Bend
 program against the library and run it:
 
 ```bash
-jev-fabric -- run program.bend arg1 arg2     # compiles (needs `bend` 2.0.36), then runs
+jev-fabric -- run program.bend arg1 arg2     # compiles (needs `bend` 2.0.37), then runs
 ```
 
 Legacy Jev HTTPS keeps one pooled TLS connection per process, so a Bend program

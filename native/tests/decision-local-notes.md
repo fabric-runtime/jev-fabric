@@ -71,14 +71,14 @@ operational size bounds, not a claim of preemptible pure CPU work.
 
 ## Trusted boundary
 
-Bend 2.0.36 has F32, not F64. `native/DecisionMath.bend` declares
+Bend 2.0.37 has F32, not F64. `native/DecisionMath.bend` declares
 `Native.statistics(temperature:String,values:String)` in
 `native/decision_math.c`. This is an additional **trusted foreign** declaration,
 not a proof. It only parses bounded decimal inputs and computes finite double
 statistics with stable subtract-before-divide softmax and `%.17g` roundtrips.
 There are no subprocesses, shell commands, filesystem, environment, network or
 clock operations. Locale handling is local; non-dot output locales fail closed.
-It is native-only (no JS FFI implementation), and its ABI follows Bend 2.0.36.
+It is native-only (no JS FFI implementation), and its ABI follows Bend 2.0.37.
 
 `native/trust.json` classifies DecisionLocal/DecisionMath as effect drivers and
 allowlists `DecisionMath.bend:Native.statistics -> native/decision_math.c`.
