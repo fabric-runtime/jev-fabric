@@ -128,6 +128,21 @@ def run_reply_size(args: List<String>) -> IO(Unit):
     case [text]: print_result(reply_size(text))
     case other: usage_error()
 
+def header_values(lines: List<&2, String>) -> List<&2, J.JSON>:
+  match lines:
+    case Nil{}: Nil{}
+    case Con{line, tail}: Con{J.Str{line}, header_values(tail)}
+
+def headers(request: String, provider: String, api: String) -> Result<&1, &1, U32 & String, String>:
+  do Result<&1, &1, U32 & String, String>:
+    req : J.JSON <- D.request(request)
+    Codec.encode_with_limit(J.Arr{header_values(D.headers(req, provider, api))}, D.bytes_max())
+
+def run_headers(args: List<String>) -> IO(Unit):
+  match args:
+    case [request, provider, api]: print_result(headers(request, provider, api))
+    case other: usage_error()
+
 def run_mode_tag(mode: String, args: List<String>, tag: U32) -> IO(Unit):
   match tag:
     case 1: run_request(args)
@@ -139,10 +154,11 @@ def run_mode_tag(mode: String, args: List<String>, tag: U32) -> IO(Unit):
     case 7: run_base64_size(args)
     case 8: run_size(args)
     case 9: run_reply_size(args)
+    case 10: run_headers(args)
     case unmatched: usage_error()
 
 def run_mode(+mode: String, args: List<String>) -> IO(Unit):
-  run_mode_tag(mode, args, Bool.pick(U32, String.eq(mode, "request"), 1, Bool.pick(U32, String.eq(mode, "reply"), 2, Bool.pick(U32, String.eq(mode, "body"), 3, Bool.pick(U32, String.eq(mode, "raw_usage"), 4, Bool.pick(U32, String.eq(mode, "reported_usage"), 5, Bool.pick(U32, String.eq(mode, "cloudflare-size"), 6, Bool.pick(U32, String.eq(mode, "base64-size"), 7, Bool.pick(U32, String.eq(mode, "size"), 8, Bool.pick(U32, String.eq(mode, "reply-size"), 9, 0))))))))))
+  run_mode_tag(mode, args, Bool.pick(U32, String.eq(mode, "request"), 1, Bool.pick(U32, String.eq(mode, "reply"), 2, Bool.pick(U32, String.eq(mode, "body"), 3, Bool.pick(U32, String.eq(mode, "raw_usage"), 4, Bool.pick(U32, String.eq(mode, "reported_usage"), 5, Bool.pick(U32, String.eq(mode, "cloudflare-size"), 6, Bool.pick(U32, String.eq(mode, "base64-size"), 7, Bool.pick(U32, String.eq(mode, "size"), 8, Bool.pick(U32, String.eq(mode, "reply-size"), 9, Bool.pick(U32, String.eq(mode, "headers"), 10, 0)))))))))))
 
 def run(args: List<String>) -> IO(Unit):
   match args:

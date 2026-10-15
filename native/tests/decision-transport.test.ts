@@ -67,6 +67,19 @@ test('byte-exact response and bearer request body', async () => {
   expect(JSON.parse(last.body)).toEqual({ payload: 'private-body-🙂' });
 });
 
+test('TypeSafe opt-in headers are sent; any other extra header is refused before the network', async () => {
+  expect(await run('ok', 'bearer', marker, 'typesafe-headers')).toBe('exchange:200:2');
+  const last = received.at(-1)!;
+  expect(last.headers.get('typesafe-danger-zone-images')).toBe('true');
+  expect(last.headers.get('typesafe-danger-zone-long-context')).toBe('true');
+  expect(last.headers.get('authorization')).toBe(`Bearer ${marker}`);
+  const before = received.length;
+  expect(await run('ok', 'bearer', marker, 'foreign-header')).toBe('error:22:Invalid decision header');
+  expect(received.length).toBe(before);
+  expect(await run()).toBe('ok:2');
+  expect(received.at(-1)!.headers.get('typesafe-danger-zone-images')).toBeNull();
+});
+
 test('anthropic and google headers, no bearer header', async () => {
   expect(await run('ok', 'anthropic')).toBe('ok:2');
   expect(received.at(-1)!.headers.get('x-api-key')).toBe(marker);

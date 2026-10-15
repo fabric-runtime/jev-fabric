@@ -284,7 +284,7 @@ Provider configuration:
 | JEV_PROVIDER | Key environment variable | Default model |
 | --- | --- | --- |
 | `typesafe` (default) | `TYPESAFE_API_KEY` | `jev-latest` |
-| `openrouter` | `OPENROUTER_API_KEY` | `typesafe/jev-1.13` |
+| `openrouter` | `OPENROUTER_API_KEY` | `~typesafe/jev-latest` |
 | `vercel` | `AI_GATEWAY_API_KEY` | `typesafe-ai/jev` |
 | `subq` | `SUBQ_API_KEY` | `subq-snap-preview` |
 

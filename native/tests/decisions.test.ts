@@ -26,7 +26,8 @@ const body = JSON.parse(chunks.length ? chunks.join('') : value('data-binary = '
 const url = value('url = ');
 const record = process.env.DECISION_RECORD;
 const n = existsSync(record) ? readFileSync(record,'utf8').trim().split('\\n').length : 0;
-appendFileSync(record, JSON.stringify({url,body,hasKey:config.includes('${key}'),args:process.argv.slice(2)})+'\\n');
+const headers = config.split('\\n').filter(l => l.startsWith('header = ') && !l.includes('${key}')).map(l => JSON.parse(l.slice('header = '.length)));
+appendFileSync(record, JSON.stringify({url,body,headers,hasKey:config.includes('${key}'),args:process.argv.slice(2)})+'\\n');
 const replies = JSON.parse(process.env.DECISION_REPLIES);
 const reply = replies[Math.min(n,replies.length-1)];
 process.stdout.write(reply + '\\n' + (process.env.DECISION_HTTP_STATUS || '200'));
@@ -185,6 +186,29 @@ test('Cloudflare Clef receives the documented direct inline-image schema', async
     expect(s.rows()[0].url).toEndWith('/ai/run/@cf/cloudflare/clef');
     expect(s.rows()[0].body).toMatchObject({ model: 'clef', images: [{ content_type: 'image/png', base64: image.data }] });
     expect(s.rows()[0].body.input).toBeUndefined();
+  });
+});
+
+test('TypeSafe images go as referenced assets behind its opt-in headers, with Box answers', async () => {
+  const raw = JSON.stringify({ model: 'jev-1.14.0', answers: { b: { type: 'box', box: { top: 0.25, bottom: 0.82, left: 0.44, right: 0.84 }, confidence: 0.92 }, q: { type: 'noul', noul: 0.8 } }, usage });
+  const s = await session([raw, JSON.stringify({ model: 'jev-1.13.0', answers: { q: { type: 'noul', noul: 0.8 } }, usage })]);
+  await closed(s, async () => {
+    const result = await s.fabric.decide({
+      provider: 'typesafe', model: 'jev-preview', state: { photo: 'pic-1' }, images: [{ ...image, ref: 'pic-1' }],
+      questions: { b: { type: 'box', instructions: 'the mug in pic-1' }, q: { type: 'noul', instructions: 'Is there a mug in pic-1?' } },
+      providerOptions: { longContext: true },
+    });
+    expect(result.status).toBe('ok');
+    expect(result.answers.b).toEqual({ type: 'box', box: { top: 0.25, bottom: 0.82, left: 0.44, right: 0.84 }, confidence: 0.92 });
+    const [row] = s.rows();
+    expect(row.url).toBe('https://api.typesafe.ai/v1/systemone');
+    expect(row.body.assets).toEqual({ 'pic-1': { type: 'image', format: 'png', data_base64: image.data } });
+    expect(row.body.providerOptions).toBeUndefined();
+    expect(row.headers).toContain('TypeSafe-Danger-Zone-Images: true');
+    expect(row.headers).toContain('TypeSafe-Danger-Zone-Long-Context: true');
+    // Text only: no opt-in.
+    expect((await s.fabric.decide({ ...request, provider: 'typesafe' })).status).toBe('ok');
+    expect(s.rows()[1].headers.filter((h: string) => h.startsWith('TypeSafe-'))).toEqual([]);
   });
 });
 

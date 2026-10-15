@@ -16,7 +16,7 @@ command starts with `jev-fabric --`.
 ## Check the install
 
 ```bash
-jev-fabric -- --version        # 0.7.1-native (Bend 2.0.37)
+jev-fabric -- --version        # 0.8.0-native (Bend 2.0.37)
 jev-fabric -- capabilities     # {"version":…,"protocol":2,"store":1,"platform":…,"features":[…]}
 ```
 
@@ -159,6 +159,12 @@ the session evaluation/token budget; unknown usage or dispatch uncertainty
 stops later calls. Generated estimates require `allowGenerated:true`; local
 HTTP requires exact loopback and `allowLocal:true`. Neither opt-in grants
 permission to make model calls.
+
+With TypeSafe, `decide` also takes images and a `box` question (one bounding
+box, Jev 1.14: `jev-preview` or `jev-1.14.0`). Each image needs a `ref`
+written into the state or instructions where it belongs;
+`providerOptions: {"longContext": true}` lifts the context limit. TypeSafe calls
+these experimental, so don't rely on them for production decisions.
 
 See [the decisions reference](https://github.com/fabric-runtime/jev-fabric/blob/main/docs/decisions.md)
 for supported image adapters, options, credentials and client examples.

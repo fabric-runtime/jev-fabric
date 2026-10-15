@@ -35,7 +35,7 @@ def routes(typesafe: Bool, openrouter: Bool, vercel: Bool, subq: Bool) -> Result
       Done{Route{
         "https://openrouter.ai/api/alpha/decisions",
         "OPENROUTER_API_KEY",
-        "typesafe/jev-1.13",
+        "~typesafe/jev-latest",
       }}
     case False{} False{} True{} _:
       Done{Route{

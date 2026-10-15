@@ -213,8 +213,8 @@ def send(
   settings: Policy.Settings, budget: Core.Budget, cached: String,
   prepared: Prepared, key: String, timeout: U32,
 ) -> IO(Jev.Returned):
-  Prepared{+config, request, body} = prepared
-  Config.Settings{provider, +api, endpoint, model, key_env, auth, allow_local} = config
+  Prepared{+config, +request, body} = prepared
+  Config.Settings{+provider, +api, endpoint, model, key_env, auth, allow_local} = config
   match api:
     case "llama-cpp":
       do IO<Jev.Returned>:
@@ -222,7 +222,7 @@ def send(
         return local_returned(settings, budget, cached, result)
     case other:
       do IO<Jev.Returned>:
-        response : Result<&1, &1, Error, Http.Response> <- Http.exchange(endpoint, key, body, timeout, allow_local, auth)
+        response : Result<&1, &1, Error, Http.Response> <- Http.exchange_with(endpoint, key, body, timeout, allow_local, auth, Wire.headers(request, provider, api))
         return received(settings, budget, cached, config, request, response)
 
 def before_dispatch(settings: Policy.Settings, original: Core.Budget, reservation: Core.Budget, cached: String, prepared: Prepared, key: String, left: U32, expired: Bool) -> IO(Jev.Returned):

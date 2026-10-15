@@ -129,14 +129,38 @@ def image_type(value: Maybe<&2, J.JSON>) -> Bool:
     case Some{J.Str{s}}: String.eq(s, "image")
     case other: False{}
 
+def blank(s: String) -> Bool:
+  match s:
+    case SNil{}: True{}
+    case SCon{Chr{+c}, tail}:
+      (U32.is_eq(c, 32) || U32.is_eq(c, 9) || U32.is_eq(c, 10) || U32.is_eq(c, 13)) && blank(tail)
+
+def within(result: Result<&1, &1, Error, U32>, message: String) -> Result<&1, &1, Error, U32>:
+  match result:
+    case Done{left}: Done{left}
+    case Fail{e}: Fail{(22, message)}
+
+# A ref names where an image goes: TypeSafe puts it wherever that text appears
+# in the state, instructions or criteria. Other adapters attach images whole.
+def image_ref(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, Unit>:
+  match value:
+    case None{}: Done{Unit{}}
+    case Some{J.Str{+s}}:
+      do Result<&1, &1, Error, Unit>:
+        Codec.guard(Bool.not(blank(s)), "invalid image ref")
+        left : U32 <- within(Codec.string_cost(s, 1024), "image ref exceeds 1024 bytes")
+        return Unit{}
+    case other: Fail{(22, "image ref must be a string")}
+
 def images(items: List<&2, J.JSON>) -> Result<&1, &1, Error, Unit>:
   match items:
     case Nil{}: Done{Unit{}}
     case Con{+image, tail}:
       do Result<&1, &1, Error, Unit>:
         fields : List<&2, J.JSON> <- W.object(image)
-        Codec.guard(W.only(fields, ["type", "data", "mimeType"]), "unknown image field")
+        Codec.guard(W.only(fields, ["type", "data", "mimeType", "ref"]), "unknown image field")
         Codec.guard(image_type(Codec.field(image, "type")), "invalid image type")
+        image_ref(Codec.field(image, "ref"))
         data_value : J.JSON <- W.need(image, "data")
         +data : String <- W.string(data_value)
         Codec.guard(Bool.not(String.is_empty(data)) && base64(data), "invalid image base64")
@@ -154,13 +178,20 @@ def optional_images(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, Unit>:
         Codec.guard(Nat.is_le(List.length(&2, J.JSON, items), 128n), "too many images")
         images(items)
 
+def no_criteria(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, Unit>:
+  match value:
+    case None{}: Done{Unit{}}
+    case other: Fail{(22, "Box questions take no criteria")}
+
 def question_kind_tag(k: String, q: J.JSON, tag: U32) -> Result<&1, &1, Error, Unit>:
   match tag:
     case 1: W.noul_criteria(Codec.field(q, "criteria"))
+    case 2: no_criteria(Codec.field(q, "criteria"))
     case unmatched: W.question_kind(k, q)
 
+# Box (one bounding box in an image) is a TypeSafe Jev 1.14 type; see box_route.
 def question_kind(+k: String, q: J.JSON) -> Result<&1, &1, Error, Unit>:
-  question_kind_tag(k, q, Bool.pick(U32, String.eq(k, "boolean"), 1, 0))
+  question_kind_tag(k, q, Bool.pick(U32, String.eq(k, "boolean"), 1, Bool.pick(U32, String.eq(k, "box"), 2, 0)))
 
 def question(+q: J.JSON) -> Result<&1, &1, Error, Unit>:
   do Result<&1, &1, Error, Unit>:
@@ -538,13 +569,29 @@ def standard_option_key_tag(provider: String, api: String, tag: U32) -> Result<&
 def standard_option_key(provider: String, +api: String) -> Result<&1, &1, Error, String>:
   standard_option_key_tag(provider, api, Bool.pick(U32, String.eq(api, "vercel-evaluate"), 1, 0))
 
-def standard_options(value: Maybe<&2, J.JSON>, provider: String, api: String) -> Result<&1, &1, Error, List<&2, J.JSON>>:
-  match value:
-    case None{}: Done{Nil{}}
-    case Some{v}:
+# TypeSafe's one option is a header, not a body field: see headers.
+def typesafe_options(+v: J.JSON) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  do Result<&1, &1, Error, List<&2, J.JSON>>:
+    fields : List<&2, J.JSON> <- W.object(v)
+    Codec.guard(W.only(fields, ["longContext"]), "unsupported TypeSafe option")
+    optional_bool(Codec.field(v, "longContext"))
+    return Nil{}
+
+def typesafe_route(+provider: String, +api: String) -> Bool:
+  String.eq(provider, "typesafe") && String.eq(api, "system-one")
+
+def other_options(v: J.JSON, provider: String, api: String, typesafe: Bool) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  match typesafe:
+    case True{}: typesafe_options(v)
+    case False{}:
       do Result<&1, &1, Error, List<&2, J.JSON>>:
         key : String <- standard_option_key(provider, api)
         return [J.Member{key, v}]
+
+def standard_options(value: Maybe<&2, J.JSON>, +provider: String, +api: String) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  match value:
+    case None{}: Done{Nil{}}
+    case Some{v}: other_options(v, provider, api, typesafe_route(provider, api))
 
 def safety_identifier(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, Unit>:
   match value:
@@ -570,16 +617,77 @@ def openai_options_tag(value: Maybe<&2, J.JSON>, provider: String, tag: U32) -> 
 def openai_options(value: Maybe<&2, J.JSON>, +provider: String) -> Result<&1, &1, Error, List<&2, J.JSON>>:
   openai_options_tag(value, provider, Bool.pick(U32, String.eq(provider, "vercel-decisions"), 1, 0))
 
+def typesafe_format_tag(tag: U32) -> Result<&1, &1, Error, String>:
+  match tag:
+    case 1: Done{"png"}
+    case 2: Done{"jpg"}
+    case unmatched: Fail{(22, "unsupported TypeSafe image MIME")}
+
+def typesafe_format(+mime: String) -> Result<&1, &1, Error, String>:
+  typesafe_format_tag(Bool.pick(U32, String.eq(mime, "image/png"), 1, Bool.pick(U32, String.eq(mime, "image/jpeg"), 2, 0)))
+
+def typesafe_ref(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, String>:
+  match value:
+    case Some{J.Str{s}}: Done{s}
+    case other: Fail{(22, "TypeSafe images need a ref that appears in the state, instructions or criteria")}
+
+# Refs are unique and at most 65536 bytes together. TypeSafe checks that each
+# appears somewhere, and the pixel limits (256 to 1568 px a side).
+def typesafe_asset_rows(items: List<&2, J.JSON>, +seen: List<&2, String>, +budget: U32) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  match items:
+    case Nil{}: Done{Nil{}}
+    case Con{+image, tail}:
+      do Result<&1, &1, Error, List<&2, J.JSON>>:
+        +ref : String <- typesafe_ref(Codec.field(image, "ref"))
+        Codec.guard(Bool.not(Codec.contains(seen, ref)), "duplicate TypeSafe image ref")
+        left : U32 <- within(Codec.string_cost(ref, budget), "TypeSafe image refs exceed 65536 bytes")
+        d : J.JSON <- W.need(image, "data")
+        data : String <- W.string(d)
+        m : J.JSON <- W.need(image, "mimeType")
+        mime : String <- W.string(m)
+        format : String <- typesafe_format(mime)
+        rest : List<&2, J.JSON> <- typesafe_asset_rows(tail, Con{ref, seen}, left)
+        return Con{J.Member{ref, J.Obj{[J.Member{"type", J.Str{"image"}}, J.Member{"format", J.Str{format}}, J.Member{"data_base64", J.Str{data}}]}}, rest}
+
+def question_kinds(fields: List<&2, J.JSON>) -> List<&2, String>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{J.Member{id, q}, tail}:
+      Con{kind(provider_name(Codec.field(q, "type"))), question_kinds(tail)}
+    case other: Nil{}
+
+def has_box(qs: List<&2, J.JSON>) -> Bool:
+  Codec.contains(question_kinds(qs), "box")
+
+def image_items(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  match value:
+    case None{}: Done{Nil{}}
+    case Some{v}: W.array(v)
+
+# TypeSafe's assets: https://docs.typesafe.ai/go/images. A Box question needs an image.
+def typesafe_assets(value: Maybe<&2, J.JSON>, qs: List<&2, J.JSON>) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  do Result<&1, &1, Error, List<&2, J.JSON>>:
+    +items : List<&2, J.JSON> <- image_items(value)
+    +n : Nat = List.length(&2, J.JSON, items)
+    Codec.guard(Bool.not(has_box(qs)) || Nat.is_gt(n, 0n), "Box questions need an image")
+    rows : List<&2, J.JSON> <- typesafe_asset_rows(items, Nil{}, 65536)
+    return Bool.pick(List<&2, J.JSON>, Nat.is_eq(n, 0n), Nil{}, [J.Member{"assets", J.Obj{rows}}])
+
 # SubQ's SystemOne documents inline images and a 13 MiB request body:
 # https://docs.subq.ai/endpoints/decisions-api/#images
-# The other SystemOne routes document no image shape, so they take none.
-def system_one_images(value: Maybe<&2, J.JSON>, subq: Bool) -> Result<&1, &1, Error, List<&2, J.JSON>>:
-  match subq:
-    case True{}: flat_images(value, "mediaType", "SubQ")
-    case False{}:
+# TypeSafe's takes them as referenced assets. The other SystemOne routes
+# document no image shape, so they take none.
+def system_one_images_tag(value: Maybe<&2, J.JSON>, qs: List<&2, J.JSON>, tag: U32) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  match tag:
+    case 1: flat_images(value, "mediaType", "SubQ")
+    case 2: typesafe_assets(value, qs)
+    case unmatched:
       do Result<&1, &1, Error, List<&2, J.JSON>>:
         no_images(value)
         return Nil{}
+
+def system_one_images(value: Maybe<&2, J.JSON>, qs: List<&2, J.JSON>, +provider: String) -> Result<&1, &1, Error, List<&2, J.JSON>>:
+  system_one_images_tag(value, qs, Bool.pick(U32, String.eq(provider, "subq"), 1, Bool.pick(U32, String.eq(provider, "typesafe"), 2, 0)))
 
 def system_one_bytes(subq: Bool) -> U32:
   match subq:
@@ -595,7 +703,7 @@ def native_extras(+req: J.JSON, api: String, model: String) -> Result<&1, &1, Er
   model_extras(model, standard_options(Codec.field(req, "providerOptions"), provider_name(Codec.field(req, "provider")), api))
 
 
-def native_body_for_tag(state: J.JSON, qs: List<&2, J.JSON>, +req: J.JSON, +api: String, model: String, tag: U32) -> Result<&1, &1, Error, String>:
+def native_body_for_tag(state: J.JSON, +qs: List<&2, J.JSON>, +req: J.JSON, +api: String, model: String, tag: U32) -> Result<&1, &1, Error, String>:
   match tag:
     case 1: cloudflare_body(state, qs, req, model)
     case 2: llama_body(state, qs, req, model)
@@ -609,8 +717,9 @@ def native_body_for_tag(state: J.JSON, qs: List<&2, J.JSON>, +req: J.JSON, +api:
     case unmatched:
       do Result<&1, &1, Error, String>:
         Codec.guard(Codec.contains(["system-one", "vercel-evaluate"], api), "unsupported decision API")
-        +subq : Bool = String.eq(api, "system-one") && String.eq(provider_name(Codec.field(req, "provider")), "subq")
-        imgs : List<&2, J.JSON> <- system_one_images(Codec.field(req, "images"), subq)
+        +provider : String = Bool.pick(String, String.eq(api, "system-one"), provider_name(Codec.field(req, "provider")), "")
+        +subq : Bool = String.eq(provider, "subq")
+        imgs : List<&2, J.JSON> <- system_one_images(Codec.field(req, "images"), qs, provider)
         questions : List<&2, J.JSON> <- standard_questions(qs, api)
         extras : List<&2, J.JSON> <- native_extras(req, api, model)
         Codec.encode_with_limit(J.Obj{Con{J.Member{"state", state}, Con{J.Member{"questions", J.Obj{questions}}, List.append(&2, J.JSON, extras, imgs)}}}, system_one_bytes(subq))
@@ -663,11 +772,50 @@ def body_for_tag(req: J.JSON, api: String, model: String, tag: U32) -> Result<&1
 def body_for(req: J.JSON, +api: String, model: String) -> Result<&1, &1, Error, String>:
   body_for_tag(req, api, model, Bool.pick(U32, String.eq(api, "anthropic"), 1, Bool.pick(U32, String.eq(api, "google"), 2, 0)))
 
+def box_route(+req: J.JSON, +api: String) -> Result<&1, &1, Error, Unit>:
+  do Result<&1, &1, Error, Unit>:
+    qs : J.JSON <- W.need(req, "questions")
+    qfields : List<&2, J.JSON> <- W.object(qs)
+    Codec.guard(Bool.not(has_box(qfields)) || typesafe_route(provider_name(Codec.field(req, "provider")), api), "Box questions are supported only by TypeSafe")
+
 def body(value: J.JSON, +api: String, +model: String) -> Result<&1, &1, Error, String>:
   do Result<&1, &1, Error, String>:
-    checked : J.JSON <- validate_request(value)
+    +checked : J.JSON <- validate_request(value)
     optional_model(Some{J.Str{model}})
+    box_route(checked, api)
     body_for(checked, api, model)
+
+def long_context(value: Maybe<&2, J.JSON>) -> Bool:
+  match value:
+    case Some{J.Boolean{True{}}}: True{}
+    case other: False{}
+
+def option_flag(options: Maybe<&2, J.JSON>, key: String) -> Bool:
+  match options:
+    case Some{+v}: long_context(Codec.field(v, key))
+    case None{}: False{}
+
+def nonempty(value: Maybe<&2, J.JSON>) -> Bool:
+  match value:
+    case Some{J.Arr{Con{head, tail}}}: True{}
+    case other: False{}
+
+def header_if(flag: Bool, header: String) -> List<&2, String>:
+  Bool.pick(List<&2, String>, flag, [header], Nil{})
+
+# TypeSafe answers images and Box questions (https://docs.typesafe.ai/go/images)
+# and long context (https://docs.typesafe.ai/models) only behind these opt-in
+# headers. Sending images or asking for long context is the opt-in.
+def typesafe_headers(+req: J.JSON, typesafe: Bool) -> List<&2, String>:
+  match typesafe:
+    case False{}: Nil{}
+    case True{}:
+      List.append(&2, String,
+        header_if(nonempty(Codec.field(req, "images")), "TypeSafe-Danger-Zone-Images: true"),
+        header_if(option_flag(Codec.field(req, "providerOptions"), "longContext"), "TypeSafe-Danger-Zone-Long-Context: true"))
+
+def headers(req: J.JSON, +provider: String, +api: String) -> List<&2, String>:
+  typesafe_headers(req, typesafe_route(provider, api))
 
 # Missing usage is deliberately distinct from zero usage; malformed partial usage fails.
 def count(value: Maybe<&2, J.JSON>) -> Result<&1, &1, Error, Maybe<&2, Nat>>:
@@ -883,6 +1031,26 @@ def common(+answer: J.JSON, expected: List<&2, J.JSON>, k: String, api: String) 
     p : List<&2, J.JSON> <- probabilities(Codec.field(answer, "probabilities"), expected, k, api)
     return List.append(&2, J.JSON, c, p)
 
+def before(a: W.Decimal, b: W.Decimal) -> Bool:
+  Bool.not(W.decimal_le(b, a))
+
+# Edges are fractions of the image from its top-left corner, with left < right
+# and top < bottom (https://docs.typesafe.ai/go/box). Lexemes are kept.
+def box_edges(+value: J.JSON) -> Result<&1, &1, Error, J.JSON>:
+  do Result<&1, &1, Error, J.JSON>:
+    fields : List<&2, J.JSON> <- W.object(value)
+    Codec.guard(W.only(fields, ["top", "bottom", "left", "right"]), "unknown box edge")
+    +top : J.JSON <- W.need(value, "top")
+    +bottom : J.JSON <- W.need(value, "bottom")
+    +left : J.JSON <- W.need(value, "left")
+    +right : J.JSON <- W.need(value, "right")
+    +t : W.Decimal <- W.probability(top)
+    +b : W.Decimal <- W.probability(bottom)
+    +l : W.Decimal <- W.probability(left)
+    +r : W.Decimal <- W.probability(right)
+    Codec.guard(before(t, b) && before(l, r), "empty or inverted box")
+    return J.Obj{[J.Member{"top", top}, J.Member{"bottom", bottom}, J.Member{"left", left}, J.Member{"right", right}]}
+
 def boolean_value_tag(answer: J.JSON, actual: String, tag: U32) -> Result<&1, &1, Error, J.JSON>:
   match tag:
     case 1: W.need(answer, "noul")
@@ -917,10 +1085,16 @@ def answer_kind_tag(k: String, q: J.JSON, +a: J.JSON, actual: String, api: Strin
         checked : W.Decimal <- W.decimal(score, Nat.sub(List.length(&2, J.JSON, levels), 1n))
         extra : List<&2, J.JSON> <- common(a, expected, "score", api)
         return J.Obj{Con{J.Member{"type", J.Str{"score"}}, Con{J.Member{"score", score}, Con{J.Member{"legend", J.Obj{expected}}, extra}}}}
+    case 4:
+      do Result<&1, &1, Error, J.JSON>:
+        b : J.JSON <- W.need(a, "box")
+        edges : J.JSON <- box_edges(b)
+        extra : List<&2, J.JSON> <- confidence(Codec.field(a, "confidence"))
+        return J.Obj{Con{J.Member{"type", J.Str{"box"}}, Con{J.Member{"box", edges}, extra}}}
     case unmatched: Fail{(22, "unknown answer type")}
 
 def answer_kind(+k: String, q: J.JSON, +a: J.JSON, actual: String, api: String) -> Result<&1, &1, Error, J.JSON>:
-  answer_kind_tag(k, q, a, actual, api, Bool.pick(U32, String.eq(k, "boolean"), 1, Bool.pick(U32, String.eq(k, "choice"), 2, Bool.pick(U32, String.eq(k, "score"), 3, 0))))
+  answer_kind_tag(k, q, a, actual, api, Bool.pick(U32, String.eq(k, "boolean"), 1, Bool.pick(U32, String.eq(k, "choice"), 2, Bool.pick(U32, String.eq(k, "score"), 3, Bool.pick(U32, String.eq(k, "box"), 4, 0)))))
 
 def answer_checked_tag(+q: J.JSON, a: J.JSON, +actual: String, api: String, tag: U32) -> Result<&1, &1, Error, J.JSON>:
   match tag:

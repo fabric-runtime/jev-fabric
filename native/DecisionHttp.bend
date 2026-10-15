@@ -49,6 +49,9 @@ def execute(plan: Result<&1, &1, U32 & String, Policy.Request>) -> IO(PostResult
 def exchange(url: String, key: String, body: String, timeout: U32, allow_local: Bool, auth: String) -> IO(Reply):
   execute_exchange(Policy.request(url, key, body, timeout, allow_local, auth))
 
+def exchange_with(url: String, key: String, body: String, timeout: U32, allow_local: Bool, auth: String, headers: List<&2, String>) -> IO(Reply):
+  execute_exchange(Policy.request_with(url, key, body, timeout, allow_local, auth, headers))
+
 def post(url: String, key: String, body: String, timeout: U32, allow_local: Bool, auth: String) -> IO(PostResult):
   do IO<PostResult>:
     reply : Reply <- exchange(url, key, body, timeout, allow_local, auth)

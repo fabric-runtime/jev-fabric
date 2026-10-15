@@ -46,8 +46,10 @@ test('canonical presets, verified defaults and pure 14-provider discovery', () =
   expect(config({}, 'vercel-decisions').model).toBe('openai/gpt-6-luna-decisions');
   expect(config({}, 'openai').model).toBe('gpt-6-luna');
   expect(config({}, 'opencode').model).toBe('jev-1.13');
+  expect(config({}, 'openrouter').model).toBe('~typesafe/jev-latest');
   expect(config({}, 'subq')).toMatchObject({ api: 'system-one', endpoint: 'https://api.subq.ai/v1/systemone', model: 'subq-snap-preview', key_env: 'SUBQ_API_KEY', auth: 'bearer' });
   expect(providers.find((p: any) => p.provider === 'subq').imageSupport).toBe('supported');
+  expect(providers.find((p: any) => p.provider === 'typesafe').imageSupport).toBe('supported');
   expect(config({ images: [{ data: 'AA==', mimeType: 'image/png' }] }, 'subq').provider).toBe('subq');
   expect(config({ allowLocal: true }, 'llama.cpp').endpoint).toBe('http://127.0.0.1:8080');
   expect(config({ allowLocal: true }, 'llama-system-one').endpoint).toBe('http://127.0.0.1:8080/v1/systemone');
@@ -81,10 +83,10 @@ test('invalid config fails purely rather than falling back or discarding capabil
     { api: 'openai-decisions' }, { api: 'bogus' }, { provider: null }, { model: '' }, { endpoint: '' },
     { allowLocal: 1 }, { allowGenerated: 'true' }, { provider: 'llama.cpp' }, { provider: 'llama-system-one' },
     { provider: 'anthropic' }, { provider: 'google' }, { provider: 'cloudflare-workers-ai' },
-    { images: ['x'] }, { provider: 'openrouter', model: 'vision-model', images: ['x'] },
+    { provider: 'openrouter', model: 'vision-model', images: ['x'] }, { provider: 'opencode', images: ['x'] },
     { provider: 'vercel-decisions', images: ['x'] }, { provider: 'vercel-evaluate', images: ['x'] },
     { provider: 'llama.cpp', allowLocal: true, images: ['x'] }, { images: null }, { temperature: 0.5 },
-    { provider: 'llama.cpp', allowLocal: true, temperature: '0.5' }, { providerOptions: {} },
+    { provider: 'llama.cpp', allowLocal: true, temperature: '0.5' }, { provider: 'subq', providerOptions: {} },
     { provider: 'vercel-evaluate', providerOptions: [] },
     { provider: 'anthropic', allowGenerated: true, temperature: 0.5 },
     { endpoint: 'http://example.com', allowLocal: true },
@@ -96,7 +98,7 @@ test('invalid config fails purely rather than falling back or discarding capabil
 
 test('implemented image and optional-field capabilities are accepted', () => {
   const valid = [
-    { images: [] }, { provider: 'openai', images: ['x'] },
+    { images: [] }, { provider: 'openai', images: ['x'] }, { images: ['x'] }, { providerOptions: { longContext: true } },
     { provider: 'anthropic', allowGenerated: true, images: ['x'], providerOptions: {} },
     { provider: 'google', allowGenerated: true, images: ['x'], providerOptions: {} },
     { provider: 'llama-system-one', allowLocal: true, images: ['x'] },

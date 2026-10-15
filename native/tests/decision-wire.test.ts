@@ -120,6 +120,59 @@ describe('pure Bend decision requests', () => {
     expect(wrapped).toEqual({ model: 'typesafe/jev', input: { state: {}, questions: { q: { ...q(), type: 'noul' } } } });
     rejected('body', req(undefined, { images: [image] }), 'cloudflare', 'typesafe/jev');
   });
+  test('TypeSafe takes images as referenced assets, Box questions and long context', () => {
+    // https://docs.typesafe.ai/go/images and https://docs.typesafe.ai/go/box
+    const image = { ref: 'pic-1', data: 'AA==', mimeType: 'image/png' };
+    const box = { type: 'box', instructions: 'the mug in pic-1' };
+    const r = (extra: object = {}, questions: unknown = { q: q() }) => req(questions, { provider: 'typesafe', state: { photo: 'pic-1' }, ...extra });
+    expect(body(r({ images: [image, { ...image, ref: 'pic 2 🙂', mimeType: 'image/jpeg' }] }), 'system-one', 'jev-preview')).toEqual({
+      state: { photo: 'pic-1' }, questions: { q: { ...q(), type: 'noul' } }, model: 'jev-preview',
+      assets: { 'pic-1': { type: 'image', format: 'png', data_base64: 'AA==' }, 'pic 2 🙂': { type: 'image', format: 'jpg', data_base64: 'AA==' } },
+    });
+    expect(body(r(), 'system-one', 'jev-latest').assets).toBeUndefined();
+    expect(body(r({ images: [] }), 'system-one', 'jev-latest').assets).toBeUndefined();
+    expect(body(r({ images: [image] }, { b: box, q: q() }), 'system-one', 'jev-preview').questions.b).toEqual(box);
+    expect(body(r({ providerOptions: { longContext: true } }), 'system-one', 'jev-latest').providerOptions).toBeUndefined();
+    body(r({ providerOptions: { longContext: false } }), 'system-one', 'jev-latest');
+    for (const extra of [{ images: [{ ...image, ref: undefined }] }, { images: [image, image] }, { images: [{ ...image, mimeType: 'image/webp' }] },
+      { images: [{ ...image, mimeType: 'image/gif' }] }, { images: Array.from({ length: 65 }, (_, i) => ({ ...image, ref: String(i).padEnd(1024, 'x') })) },
+      { providerOptions: { longContext: 1 } }, { providerOptions: { other: true } }]) rejected('body', r(extra), 'system-one', 'jev-latest');
+    for (const ref of ['', ' \n\t', 'x'.repeat(1025), 7]) rejected('request', req(undefined, { images: [{ ...image, ref }] }));
+    accepted('request', req(undefined, { images: [{ ...image, ref: '🙂'.repeat(256) }] }));
+    rejected('body', r({}, { b: box }), 'system-one', 'jev-preview');
+    rejected('request', req({ b: { ...box, criteria: {} } }));
+    for (const provider of ['subq', 'openrouter', 'opencode']) rejected('body', req({ b: box }, { provider, images: [image] }), 'system-one', 'm');
+    for (const api of ['openai-decisions', 'vercel-evaluate', 'cloudflare', 'llama-system-one']) rejected('body', req({ b: box }, { provider: 'typesafe', images: [image] }), api, 'm');
+    // Other adapters attach images whole and ignore the ref.
+    expect(body(req(undefined, { provider: 'subq', images: [image] }), 'system-one', 'subq-snap-preview').images).toEqual([{ mediaType: 'image/png', base64: 'AA==' }]);
+  });
+
+  test('TypeSafe opt-in headers follow the request, and only on TypeSafe', () => {
+    const image = { ref: 'pic-1', data: 'AA==', mimeType: 'image/png' };
+    const headers = (request: object, provider = 'typesafe', api = 'system-one') => JSON.parse(accepted('headers', JSON.stringify({ state: 'pic-1', questions: { q: q() }, ...request }), provider, api));
+    expect(headers({})).toEqual([]);
+    expect(headers({ images: [] })).toEqual([]);
+    expect(headers({ images: [image] })).toEqual(['TypeSafe-Danger-Zone-Images: true']);
+    expect(headers({ providerOptions: { longContext: true } })).toEqual(['TypeSafe-Danger-Zone-Long-Context: true']);
+    expect(headers({ providerOptions: { longContext: false } })).toEqual([]);
+    expect(headers({ images: [image], providerOptions: { longContext: true } })).toEqual(['TypeSafe-Danger-Zone-Images: true', 'TypeSafe-Danger-Zone-Long-Context: true']);
+    expect(headers({ images: [image] }, 'subq')).toEqual([]);
+    expect(headers({ images: [image] }, 'typesafe', 'vercel-evaluate')).toEqual([]);
+  });
+
+  test('Box answers keep their edge lexemes and must be a real box', () => {
+    const image = { ref: 'pic-1', data: 'AA==', mimeType: 'image/png' };
+    const r = req({ b: { type: 'box', instructions: 'the mug in pic-1' } }, { provider: 'typesafe', images: [image] });
+    const edges = { top: 0.25, bottom: 0.82, left: 0.44, right: 0.84 };
+    expect(reply(r, response({ b: { type: 'box', box: edges, confidence: 0.92 } }, nativeUsage)).answers.b).toEqual({ type: 'box', box: edges, confidence: 0.92 });
+    expect(accepted('reply', r, '{"answers":{"b":{"type":"box","box":{"left":0,"right":1.0,"top":0E0,"bottom":1}}}}', 'system-one', 'm')).toContain('"box":{"top":0E0,"bottom":1,"left":0,"right":1.0}');
+    for (const box of [{ ...edges, top: 0.9 }, { ...edges, right: 0.44 }, { ...edges, bottom: 1.01 }, { ...edges, left: -0.1 }, { ...edges, extra: 0 }, { top: 0.1, bottom: 0.2, left: 0.3 }, [0, 1, 0, 1], { ...edges, top: '0.1' }])
+      rejectReply(r, response({ b: { type: 'box', box } }));
+    rejectReply(r, response({ b: { type: 'box', box: edges, confidence: 1.5 } }));
+    rejectReply(r, response({ b: { type: 'choice', choice: 'a' } }));
+    expect(reply(r, response({ b: { type: 'refusal', reason: 'no' } })).answers.b.type).toBe('refusal');
+  });
+
   test('SubQ SystemOne takes inline images; the other SystemOne routes take none', () => {
     // https://docs.subq.ai/endpoints/decisions-api/#images
     const image = { type: 'image', data: 'AA==', mimeType: 'image/png' };
@@ -132,6 +185,7 @@ describe('pure Bend decision requests', () => {
     rejected('body', r({ images: [{ ...image, mimeType: 'image/gif' }] }), 'system-one', 'subq-snap-preview');
     rejected('body', r({ providerOptions: {} }), 'system-one', 'subq-snap-preview');
     for (const provider of [undefined, 'typesafe', 'openrouter', 'opencode']) {
+      // TypeSafe takes images only with a ref (see above).
       rejected('body', req(undefined, { ...(provider ? { provider } : {}), images: [image] }), 'system-one', 'jev-latest');
     }
     rejected('body', r({ images: [image] }), 'vercel-evaluate', 'typesafe-ai/jev');

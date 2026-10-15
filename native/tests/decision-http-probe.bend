@@ -16,6 +16,15 @@ def show_exchange(result: H.Reply) -> IO(Unit):
     case Done{H.Response{status, bytes}}:
       IO.print("exchange:" ++ U32.show(status) ++ ":" ++ Nat.show(List.length(&2, U32, bytes)))
 
+def extra_headers(mode: String) -> List<&2, String>:
+  match mode:
+    case "typesafe-headers":
+      ["TypeSafe-Danger-Zone-Images: true", "TypeSafe-Danger-Zone-Long-Context: true"]
+    case "foreign-header":
+      ["X-Injected: 1"]
+    case other:
+      Nil{}
+
 def send(url: String, key: String, body: String, timeout: U32, auth: String, raw: Bool) -> IO(Unit):
   match raw:
     case True{}:
@@ -51,13 +60,22 @@ def timeout_for(mode: String) -> U32:
     case other:
       5000
 
+def send_mode(url: String, key: String, body: String, auth: String, +mode: String, headers: Bool) -> IO(Unit):
+  match headers:
+    case True{}:
+      do IO<Unit>:
+        reply : H.Reply <- H.exchange_with(url, key, body, 5000, True{}, auth, extra_headers(mode))
+        show_exchange(reply)
+    case False{}:
+      send(url, key, body, timeout_for(mode), auth, String.eq(mode, "exchange"))
+
 def dispatch(args: List<String>) -> IO(Unit):
   match args:
     case Con{url, Con{auth, Con{+mode, Nil{}}}}:
       do IO<Unit>:
         key : String <- Time.env("DECISION_PROBE_KEY")
         body : String = body_for(mode)
-        send(url, key, body, timeout_for(mode), auth, String.eq(mode, "exchange"))
+        send_mode(url, key, body, auth, mode, String.eq(mode, "typesafe-headers") || String.eq(mode, "foreign-header"))
     case other:
       IO.die(Unit, 2, "expected URL auth mode")
 

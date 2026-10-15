@@ -83,6 +83,10 @@ try {
   null. `score.criteria` has 2..10 described levels; scores may be fractional,
   from zero through the last index. Boolean aliases are `boolean`, `bool`,
   `noul`, `predicate`; optional criteria describe `true` and/or `false`.
+- `box` asks TypeSafe for one bounding box around what `instructions` names in
+  an image of the request (see [Images](#images)). It takes no criteria. Other
+  adapters reject it. TypeSafe answers it with Jev 1.14 (`jev-preview` or
+  `jev-1.14.0`, and `jev-latest` once TypeSafe moves the alias); 1.13 refuses it.
 - Optional fields: `images`, `profile`, `provider`, `api`, `model`, `endpoint`, `allowLocal`,
   `allowGenerated`, `providerOptions`, `temperature`. Unknown request/question
   fields and duplicate JSON keys are rejected.
@@ -108,7 +112,7 @@ Image support describes the adapter, not every model behind it.
 | --- | --- | --- | --- | --- |
 | `typesafe` | `system-one` | `jev-latest` | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` |
 | `subq` | `system-one` | `subq-snap-preview` | `https://api.subq.ai/v1/systemone` | `SUBQ_API_KEY` |
-| `openrouter` | `system-one` | `typesafe/jev-1.13` | `https://openrouter.ai/api/v1/systemone` | `OPENROUTER_API_KEY` |
+| `openrouter` | `system-one` | `~typesafe/jev-latest` | `https://openrouter.ai/api/v1/systemone` | `OPENROUTER_API_KEY` |
 | `vercel` | `system-one` | `typesafe-ai/jev` | `https://ai-gateway.vercel.sh/typesafe/v1/systemone` | `AI_GATEWAY_API_KEY` |
 | `vercel-evaluate` | `vercel-evaluate` | `typesafe-ai/jev` | `https://ai-gateway.vercel.sh/v1/evaluate` | `AI_GATEWAY_API_KEY` |
 | `vercel-decisions` | `openai-decisions` | `openai/gpt-6-luna-decisions` | `https://ai-gateway.vercel.sh/v1/decisions` | `AI_GATEWAY_API_KEY` |
@@ -120,6 +124,10 @@ Image support describes the adapter, not every model behind it.
 | `anthropic` | `anthropic` | `claude-haiku-4-5-20251001` | `https://api.anthropic.com/v1/messages` | `ANTHROPIC_API_KEY` |
 | `google` | `google` | `gemini-2.5-flash` | `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` | `GEMINI_API_KEY`, fallback `GOOGLE_API_KEY` |
 | `custom` | explicit | explicit | explicit | `DECISION_API_KEY` |
+
+OpenRouter's `~typesafe/jev-latest` follows the newest Jev, as TypeSafe's own
+`jev-latest` does. OpenCode serves only `jev-1.13` (and `jev-1.13-free`), with no
+such alias, so its default stays pinned; pass `--model` when it adds another.
 
 `vercel-ai-gateway` aliases `vercel`. An explicit `profile` selects a trusted
 named target; an explicit `provider` without a profile selects a fresh target
@@ -166,7 +174,16 @@ Gateway fallback is an **explicit provider option**, not an HTTP retry by this
 client, and may bill multiple stages. Consult the gateway's routing contract.
 Direct OpenAI accepts only `providerOptions.safety_identifier` (null or a
 nonempty printable string up to 64 scalars), forwarded as a top-level body
-field. TypeSafe, SubQ, OpenCode, Cloudflare and local adapters reject provider options.
+field. TypeSafe accepts only `providerOptions.longContext` (boolean), sent as
+the `TypeSafe-Danger-Zone-Long-Context: true` header rather than a body field:
+it raises Jev's context limit from 64k tokens a request (32k a question) to
+262k, slower and less accurate by TypeSafe's account
+([models](https://docs.typesafe.ai/models#context-length)). SubQ, OpenCode,
+Cloudflare and local adapters reject provider options.
+
+```json
+{"provider": "typesafe", "providerOptions": {"longContext": true}}
+```
 
 Anthropic and Google require `allowGenerated:true`. They generate schema-bound
 answers, **not native probability distributions**. Their boolean probability is
@@ -194,7 +211,7 @@ reject it.
 ### Images
 
 Supply `images: [{"data": "<base64>", "mimeType": "image/png", "type": "image"}]`.
-`type` is optional. Data must be nonempty canonical base64, without whitespace,
+`type` is optional, as is `ref` (below). Data must be nonempty canonical base64, without whitespace,
 a URL or a data-URL prefix. No remote image URL is fetched by the client.
 Generic validation permits at most 128 images; adapter and byte limits still
 apply. It validates encoding and MIME, not image pixels.
@@ -209,7 +226,36 @@ apply. It validates encoding and MIME, not image pixels.
 | `llama-cpp` chat/logprobs | No images; separate from native SystemOne |
 | Anthropic | Generated opt-in; inline base64 image source, PNG/JPEG/WebP/GIF |
 | Google | Generated opt-in; `inlineData`, PNG/JPEG/WebP through the public request schema |
-| TypeSafe, OpenRouter, OpenCode, Vercel | No images; Vercel custom routes to `ai-gateway.vercel.sh` are also rejected |
+| TypeSafe `system-one` | Referenced `assets` (`{type, format, data_base64}`); PNG/JPEG; every image needs a `ref`; sent with `TypeSafe-Danger-Zone-Images: true` |
+| OpenRouter, OpenCode, Vercel | No images; Vercel custom routes to `ai-gateway.vercel.sh` are also rejected |
+
+TypeSafe places each image where its `ref` appears: a state or instructions
+string equal to the ref becomes the image, and a longer string has the ref
+replaced in place ([images](https://docs.typesafe.ai/go/images)). So every
+TypeSafe image needs a `ref` that appears in the `state`, a question's
+`instructions` or its `criteria`. Refs are 1..1024 bytes, not only whitespace,
+unique in a request and at most 65536 bytes together. Prefer something that
+can't occur by accident, such as a UUID: a ref `cat` would also replace the
+start of `category`. TypeSafe checks that each ref is used and that images are
+256 to 1568 pixels a side. Other adapters attach images whole and ignore `ref`.
+
+```json
+{
+  "provider": "typesafe",
+  "model": "jev-preview",
+  "state": {"photo": "img-7f3c"},
+  "images": [{"ref": "img-7f3c", "data": "<base64>", "mimeType": "image/jpeg"}],
+  "questions": {
+    "present": {"type": "noul", "instructions": "Is there a coffee mug in img-7f3c?"},
+    "mug": {"type": "box", "instructions": "the coffee mug in img-7f3c"}
+  }
+}
+```
+
+Images and Box questions are what TypeSafe calls danger-zone features: opt-in,
+less reliable than text, not recommended for production, and liable to change
+between releases. Sending images is the opt-in; jev-fabric adds the header. A
+Box question needs at least one image in the request.
 
 OpenRouter SystemOne has no documented image wire shape: an image request fails
 even if a model catalog advertises vision. Capabilities are not inferred from
@@ -247,7 +293,11 @@ A decision result has `status: "ok" | "error"`, `provider`, `api`, `model`,
 | `boolean` | `probability` in [0,1], not a thresholded truth value |
 | `choice` | `choice`, one of the requested keys |
 | `score` | `score` in [0,last index], with the request-derived `legend` |
+| `box` | `box: {top, bottom, left, right}`, fractions of the image's height and width from its top-left corner, with top < bottom and left < right; optional `confidence` |
 | `refusal` | Provider refusal fields; not a fabricated zero probability |
+
+A Box answer is always a box: TypeSafe has no "not found", so ask a boolean
+question too when the object may be missing. One question finds one object.
 
 Choice/score `probabilities` and `confidence` are optional. They are never
 filled in when the provider omits them. If supplied, probabilities must cover

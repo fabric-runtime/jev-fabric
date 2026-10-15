@@ -173,17 +173,33 @@ def body_object(value: J.JSON) -> Result<&1, &1, U32 & String, Unit>:
     case other:
       Fail{(22, "Decision request body must be a JSON object")}
 
-def config(url: String, key: String, data: String, ms: U32, auth: String) -> String:
+# Fixed provider headers the request asks for (TypeSafe's opt-ins), never caller text.
+def header_lines(extra: List<&2, String>) -> String:
+  match extra:
+    case Nil{}:
+      ""
+    case Con{line, tail}:
+      "header = " ++ Curl.quote(line) ++ "\n" ++ header_lines(tail)
+
+def extra_valid(extra: List<&2, String>) -> Bool:
+  match extra:
+    case Nil{}:
+      True{}
+    case Con{+line, tail}:
+      Codec.contains(["TypeSafe-Danger-Zone-Images: true", "TypeSafe-Danger-Zone-Long-Context: true"], line) && extra_valid(tail)
+
+def config(url: String, key: String, data: String, ms: U32, auth: String, extra: List<&2, String>) -> String:
   "url = " ++ Curl.quote(url) ++ "\nrequest = \"POST\"\n" ++
-  "header = \"Content-Type: application/json\"\n" ++ headers(key, auth) ++
+  "header = \"Content-Type: application/json\"\n" ++ headers(key, auth) ++ header_lines(extra) ++
   data ++ "max-time = " ++
   U32.show(U32.div(U32.add(ms, 999), 1000)) ++ "\n"
 
 type Request is Data:
   Request{config: String, timeout: U32}
 
-def request(+url: String, +key: String, +body: String, +timeout: U32, +allow_local: Bool, +auth: String) -> Result<&1, &1, U32 & String, Request>:
+def request_with(+url: String, +key: String, +body: String, +timeout: U32, +allow_local: Bool, +auth: String, +extra: List<&2, String>) -> Result<&1, &1, U32 & String, Request>:
   do Result<&1, &1, U32 & String, Request>:
+    Codec.guard(extra_valid(extra), "Invalid decision header")
     Codec.guard(url_valid(url, allow_local), "Invalid decision endpoint")
     Codec.guard(auth_valid(key, allow_local && is_local(url), auth), "Invalid decision authentication")
     Codec.guard(U32.is_ge(timeout, 1) && U32.is_le(timeout, 3600000), "Invalid decision timeout")
@@ -191,7 +207,10 @@ def request(+url: String, +key: String, +body: String, +timeout: U32, +allow_loc
     body_object(checked)
     left : U32 <- Codec.string_cost(body, bytes_max())
     data : String <- body_config(body, 16384n, "", [], left)
-    return Request{config(url, key, data, timeout, auth), timeout}
+    return Request{config(url, key, data, timeout, auth, extra), timeout}
+
+def request(+url: String, +key: String, +body: String, +timeout: U32, +allow_local: Bool, +auth: String) -> Result<&1, &1, U32 & String, Request>:
+  request_with(url, key, body, timeout, allow_local, auth, Nil{})
 
 # No caller inputs in argv. --disable must be the first curl option. Explicit
 # empty proxy bypasses environment proxies; curl cannot follow any redirect.

@@ -45,7 +45,7 @@ function rejected(request: object, extra: Record<string, string> = {}) {
 test('offline resolution returns the exact stable sanitized contract', () => {
   expect(resolution()).toEqual({
     target: { provider: 'typesafe', api: 'system-one', model: 'jev-latest', endpoint: 'https://api.typesafe.ai/v1/systemone', allowLocal: false, allowGenerated: false },
-    credential: { env: 'TYPESAFE_API_KEY', resolved: false }, imageSupport: 'unsupported', generated: false,
+    credential: { env: 'TYPESAFE_API_KEY', resolved: false }, imageSupport: 'supported', generated: false,
   });
 });
 

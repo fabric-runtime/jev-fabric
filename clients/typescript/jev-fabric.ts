@@ -165,7 +165,9 @@ export type DecisionDescription = string | DecisionJSON[] | { [key: string]: Dec
 export type DecisionQuestion =
   | { type: 'choice'; instructions: DecisionDescription; criteria: Record<string, DecisionDescription | null> }
   | { type: 'score'; instructions: DecisionDescription; criteria: DecisionDescription[] }
-  | { type: 'boolean' | 'bool' | 'noul' | 'predicate'; instructions: DecisionDescription; criteria?: { true?: DecisionDescription; false?: DecisionDescription } };
+  | { type: 'boolean' | 'bool' | 'noul' | 'predicate'; instructions: DecisionDescription; criteria?: { true?: DecisionDescription; false?: DecisionDescription } }
+  /** TypeSafe only (Jev 1.14): one bounding box around what the instructions name, in an image of the request. */
+  | { type: 'box'; instructions: DecisionDescription };
 export type DecisionAPI = 'system-one' | 'cloudflare' | 'openai-decisions' | 'vercel-evaluate' | 'llama-cpp' | 'llama-system-one' | 'anthropic' | 'google';
 export interface DecisionProvider {
   provider: string;
@@ -228,7 +230,8 @@ export interface DecisionRequest {
   model?: string;
   /** Explicit endpoint override. Hosted endpoints require HTTPS. */
   endpoint?: string;
-  images?: { type?: 'image'; data: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' }[];
+  /** `ref` places the image for TypeSafe (which requires it): the image goes wherever that text appears in the state, instructions or criteria. */
+  images?: { type?: 'image'; data: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; ref?: string }[];
   /** Permit plain HTTP only to literal loopback addresses. */
   allowLocal?: boolean;
   /** Required for prompted Anthropic/Gemini estimates, not native decision probabilities. */
@@ -240,6 +243,8 @@ export type DecisionAnswer =
   | { type: 'boolean'; probability: number }
   | { type: 'choice'; choice: string; probabilities?: Record<string, number>; confidence?: number }
   | { type: 'score'; score: number; probabilities?: Record<string, number>; confidence?: number; legend?: Record<string, DecisionDescription> }
+  /** Edges are fractions of the image's height (top, bottom) and width (left, right) from its top-left corner. */
+  | { type: 'box'; box: { top: number; bottom: number; left: number; right: number }; confidence?: number }
   | { type: 'refusal'; [field: string]: unknown };
 export interface DecisionResult {
   status: 'ok' | 'error';
