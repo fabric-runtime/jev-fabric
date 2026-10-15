@@ -290,6 +290,12 @@ bun run typecheck                # the TypeScript client and example
 bun run demo                     # native, no model call
 ```
 
+Bend's code generation is single-threaded and slow. With a
+[Modal](https://modal.com) account, `JEV_FABRIC_BEND=modal bun run test:native`
+generates the C for the binary and all 24 test fixtures on Modal at once, and
+compiles it with the local clang: about 7 minutes instead of 25 on a 16 GB Mac.
+The same variable works for `bun run build`. See `scripts/modal-bend.py`.
+
 More: [architecture](docs/architecture.md), [shell composition](docs/composition.md),
 [serve protocol](docs/serve-protocol.md),
 [Bend migration](docs/bend-migration.md), [acceptance ledger](docs/native-rewrite-ledger.md).

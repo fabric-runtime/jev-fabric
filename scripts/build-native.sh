@@ -16,5 +16,37 @@ if [ "$version" != 'bend 2.0.37' ]; then
   exit 1
 fi
 mkdir -p build
+if [ "${JEV_FABRIC_BEND:-local}" != modal ]; then
+  bun scripts/check-native-safety.ts
+  bend native/main.bend -o build/jev-fabric
+  exit 0
+fi
+
+# JEV_FABRIC_BEND=modal: Bend generates each target's C on Modal (see
+# scripts/modal-bend.py) while the safety gate runs here, and local clang
+# compiles it. Targets land in build/modal-out first and are installed only
+# when both succeed. JEV_FABRIC_MODAL_TARGETS adds <file.bend>=<binary> pairs.
+command -v modal >/dev/null 2>&1 || {
+  printf '%s\n' 'JEV_FABRIC_BEND=modal needs the Modal CLI (`uv tool install modal`, then `modal setup`).' >&2
+  exit 1
+}
+rm -rf build/modal-out
+mkdir -p build/modal-out
+staged=''
+installs=''
+for pair in native/main.bend=build/jev-fabric ${JEV_FABRIC_MODAL_TARGETS:-}; do
+  src=${pair%%=*}
+  out=${pair#*=}
+  stage=build/modal-out/$(basename "$out")
+  staged="$staged $src=$stage"
+  installs="$installs $stage=$out"
+done
+modal run scripts/modal-bend.py --targets "$staged" &
+remote=$!
+trap 'kill "$remote" 2>/dev/null || true' EXIT
 bun scripts/check-native-safety.ts
-bend native/main.bend -o build/jev-fabric
+wait "$remote"
+trap - EXIT
+for pair in $installs; do
+  mv "${pair%%=*}" "${pair#*=}"
+done

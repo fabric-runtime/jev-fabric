@@ -6,14 +6,24 @@ export BEND_NO_TELEMETRY=1
 # JSC assumes keeps it in memory; the emitted C is byte-identical.
 export BUN_JSC_forceRAMSize=${BUN_JSC_forceRAMSize:-4294967296}
 cd "$(dirname "$0")/.."
-sh scripts/build-native.sh
-# The safety gate in build-native.sh already checked every example module.
 
 # Build outside Bun's test hooks, with process-group deadlines and phase evidence.
 fixtures='policy-checks io fail-fast jobs jobs-streams codec codec-limits wire codec-wire-probe
   http jev-client session monitor monitor-pure timers
   codec-decision decision-http-core decision-config decision-http-probe
   decision-generated-probe decision-local decision-wire-probe decision-targets decision-target-cli'
+if [ "${JEV_FABRIC_BEND:-local}" = modal ]; then
+  # Every fixture is generated on Modal alongside the main binary, all at once.
+  fixtures_modal=''
+  for name in $fixtures; do
+    fixtures_modal="$fixtures_modal native/tests/$name.bend=build/test-$name"
+  done
+  JEV_FABRIC_MODAL_TARGETS=$fixtures_modal sh scripts/build-native.sh
+else
+  sh scripts/build-native.sh
+fi
+# The safety gate in build-native.sh already checked every example module.
+
 # Per fixture: <name>.json receipt, .pid of its deadline supervisor, .start time, .status exit code.
 receipts=build/fixture-receipts
 # The supervisor's exit code after SIGTERM (128 + 15).
@@ -95,6 +105,9 @@ esac
 rm -rf "$receipts"
 mkdir -p "$receipts"
 pending=$fixtures
+if [ "${JEV_FABRIC_BEND:-local}" = modal ]; then
+  pending=''
+fi
 running=''
 failed=''
 trap cancel_builds EXIT
