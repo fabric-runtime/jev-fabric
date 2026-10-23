@@ -134,25 +134,23 @@ jobs:
 
   npm:
     # Per-platform packages carry the executable; `jev-fabric` carries the
-    # launcher, binaryPath() and the clients. Publishing needs an NPM_TOKEN
-    # secret; without it the packages are only built and uploaded as artifacts.
+    # launcher, binaryPath() and the clients. Publishing uses npm trusted
+    # publishing: each package trusts this repo's release.yml, and npm trades
+    # the job's OIDC token for a short-lived one, so no NPM_TOKEN secret exists.
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    env:
-      # setup-node puts a placeholder in NODE_AUTH_TOKEN when none is given, so
-      # gate on the secret itself.
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
+          node-version: 24
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
       - uses: actions/download-artifact@v4
         with:
           pattern: jev-fabric-*-*
@@ -165,9 +163,6 @@ jobs:
           path: npm-out/*.tgz
           if-no-files-found: error
       - name: Publish to npm
-        if: ${{ env.NPM_TOKEN != '' }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -eu
           # Platform packages first, so `jev-fabric` never points at a missing version.
