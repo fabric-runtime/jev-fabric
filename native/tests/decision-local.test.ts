@@ -22,7 +22,7 @@ const request = (questions: any = { q: binary() }, extra: any = {}) => ({ state:
 async function run(req: any = request(), mode = 'normal', timeout = 60000) {
   const log = join(root, `log-${++sequence}`);
   writeFileSync(log, '');
-  const child = Bun.spawn([bin, '--', 'eval', typeof req === 'string' ? req : JSON.stringify(req), String(timeout)], {
+  const child = Bun.spawn([bin, '--RTS', 'eval', typeof req === 'string' ? req : JSON.stringify(req), String(timeout)], {
     env: { ...process.env, PATH: `${fake}:${process.env.PATH}`, LOCAL_MOCK_LOG: log, LOCAL_MOCK_MODE: mode }, stdout: 'pipe', stderr: 'pipe',
   });
   const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -31,12 +31,12 @@ async function run(req: any = request(), mode = 'normal', timeout = 60000) {
   return { value: JSON.parse(out), out, calls };
 }
 function preflight(req: any) {
-  const p = Bun.spawnSync([bin, '--', 'preflight', typeof req === 'string' ? req : JSON.stringify(req)]);
+  const p = Bun.spawnSync([bin, '--RTS', 'preflight', typeof req === 'string' ? req : JSON.stringify(req)]);
   expect(p.exitCode, p.stderr.toString()).toBe(0);
   return p.stdout.toString().trim();
 }
 function math(t: string, logs: string) {
-  return Bun.spawnSync([bin, '--', 'math', t, logs]);
+  return Bun.spawnSync([bin, '--RTS', 'math', t, logs]);
 }
 
 test('all binary aliases use Yes/No, normalized boolean, derived provenance, and exact raw readouts', async () => {

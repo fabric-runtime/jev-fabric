@@ -4,7 +4,7 @@
 
 There are **zero unsafe definitions** in the project's native Bend, vendored
 Bend, probes, tests or native examples: neither `@unsafe` nor `def f?` is used.
-Every such module is checked by stock Bend 2.0.37. No proof holes or unimplemented
+Every such module is checked by stock Bend 2.0.38. No proof holes or unimplemented
 laws are permitted. No C, runtime or compiler changes were used to achieve this.
 
 `native/trust.json` declares sixteen pure production modules, three proof roots and
@@ -67,7 +67,9 @@ arguments, and `Native.exec` and `Native.exec_logged` a `cwd` argument, rather
 than new functions. Their implementations total 2088 physical C lines. IO wrappers still legitimately
 produce Bend's "rely on unsafe or foreign code" verdict (`SOME PROOFS FAIL`, exit 1,
 since Bend 2.0.32); the gate accepts it only for drivers and only when it lists
-nothing else. With no project unsafe definitions remaining, the project boundary
+nothing else. Since Bend 2.0.38 the verdict names each reason, and the gate
+accepts only the "defs that depend on foreign effects" group (with Bend's
+unused-import hint); a "defs that depend on @unsafe" group always fails. With no project unsafe definitions remaining, the project boundary
 is foreign code. We do not suppress that verdict.
 
 ## Terminating implementations, not relocated unsafe

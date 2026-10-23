@@ -417,12 +417,23 @@ def route_decision(+command: String, args: List<String>, decision: Bool) -> Resu
         parsed : DecisionCli.Arguments <- DecisionCli.parse(args, String.eq(command, "resolve-decision"))
         return decision_arguments(command, parsed)
 
-def parse(args: List<String>) -> Result<&1, &1, Error, Plan>:
+def parse_command(args: List<String>) -> Result<&1, &1, Error, Plan>:
   match args:
     case Nil{}:
       Done{Pass{Nil{}}}
     case Con{+command, rest}:
       route_decision(command, rest, String.eq(command, "decide") || String.eq(command, "resolve-decision"))
+
+# One leading "--" is dropped, so `jev-fabric -- <command>` and `jev-fabric <command>`
+# are the same call. Bend 2.0.37 runtimes removed it before the program saw its
+# arguments; from Bend 2.0.38 it reaches the program (runtime options go between
+# +RTS and -RTS, and --RTS passes every later argument through verbatim).
+def parse(args: List<String>) -> Result<&1, &1, Error, Plan>:
+  match args:
+    case Con{"--", rest}:
+      parse_command(rest)
+    case other:
+      parse_command(other)
 
 def exec_args(args: List<String>, ms: U32, input: Bool) -> List<String>:
   match input:

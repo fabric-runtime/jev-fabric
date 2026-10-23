@@ -13,8 +13,8 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 async function probe(mode: string) {
   // The launch-failure probe runs under a 64-descriptor limit to expose leaks.
   const cmd = mode === 'failures'
-    ? ['/bin/sh', '-c', 'ulimit -n 64; exec "$@"', 'sh', bin, '--', mode]
-    : [bin, '--', mode];
+    ? ['/bin/sh', '-c', 'ulimit -n 64; exec "$@"', 'sh', bin, '--RTS', mode]
+    : [bin, '--RTS', mode];
   const env = { PATH: '/usr/bin:/bin', JEV_FABRIC_HOME: join(root, String(serial++)) };
   const { out, err, code } = await capture([nativeBin, '--', 'exec', '20000', ...cmd], { env });
   expect(code, out + err).toBe(0);

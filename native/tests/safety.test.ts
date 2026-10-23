@@ -6,7 +6,7 @@ import { expectFixture } from './helpers.ts';
 function fixture(pure = 'import Base\ndef value() -> Nat:\n  0n\n') {
   const manifest: Manifest = {
     schemaVersion: 1,
-    compiler: 'bend 2.0.37',
+    compiler: 'bend 2.0.38',
     pure: ['native/Pure.bend'],
     proofs: [],
     drivers: ['native/Driver.bend'],
@@ -76,19 +76,32 @@ test('compiled pure policies preserve runtime representations and boundary check
   expect(result.exitCode, result.stderr.toString()).toBe(0);
   expect(result.stdout.toString()).toContain('native core assertions: 23');
   expect(result.stdout.toString()).toContain('native safe policy assertions: 10');
-  expect(result.stdout.toString()).toContain('native timer policy assertions: 54');
+  expect(result.stdout.toString()).toContain('native timer policy assertions: 62');
 }, 190000);
 
 test('compiler trust warnings and incomplete verdicts fail in the pure proof closure', () => {
   const clean = 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.\n';
   acceptVerdict('pure', clean, true, 0);
   expect(() => acceptVerdict('pure', clean, true, 1)).toThrow(/trust verdict/);
-  const warning = 'SOME PROOFS FAIL\nError: 1 def relies on unsafe or foreign code:\n- run\n';
+  const warning = 'SOME PROOFS FAIL\nError: 1 def relies on unsafe or foreign code:\ndefs that depend on foreign effects: run\n';
   expect(() => acceptVerdict('pure', warning, true, 1)).toThrow(/trust verdict/);
   acceptVerdict('driver', warning, false, 1);
   expect(() => acceptVerdict('driver', warning, false, 0)).toThrow(/trust verdict/);
-  const imported = 'SOME PROOFS FAIL\nError: 2 defs rely on unsafe or foreign code:\n- ../Host.jfh_os\n- run\n';
+  const imported = 'SOME PROOFS FAIL\nError: 2 defs rely on unsafe or foreign code:\n'
+    + 'defs that depend on foreign effects: ../Host.jfh_os, run\n';
   acceptVerdict('driver', imported, false, 1);
+  const hinted = imported + 'Hint: no law or proof uses these defs. Move them to a file this proof does not import, '
+    + 'and the proofs will check: ../Host.jfh_os, run\n';
+  acceptVerdict('driver', hinted, false, 1);
+  // Bend 2.0.38 names each reason: an @unsafe dependency never passes, even beside foreign effects.
+  const unsafe = 'SOME PROOFS FAIL\nError: 2 defs rely on unsafe or foreign code:\ndefs that depend on @unsafe: spin, main\n';
+  expect(() => acceptVerdict('driver', unsafe, false, 1)).toThrow(/trust verdict/);
+  const mixed = 'SOME PROOFS FAIL\nError: 3 defs rely on unsafe or foreign code:\n'
+    + 'defs that depend on @unsafe: spin, main\ndefs that depend on foreign effects: run, main\n';
+  expect(() => acceptVerdict('driver', mixed, false, 1)).toThrow(/trust verdict/);
+  // The pre-2.0.38 list format is no longer accepted.
+  const legacy = 'SOME PROOFS FAIL\nError: 1 def relies on unsafe or foreign code:\n- run\n';
+  expect(() => acceptVerdict('driver', legacy, false, 1)).toThrow(/trust verdict/);
   const incomplete = 'SOME PROOFS FAIL\nError: 1 TODO found.\nThe code is incomplete, and not a valid proof yet.';
   expect(() => acceptVerdict('pure', incomplete, true, 1)).toThrow(/trust verdict/);
   expect(() => acceptVerdict('driver', incomplete, false, 1)).toThrow(/trust verdict/);

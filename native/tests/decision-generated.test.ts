@@ -41,7 +41,7 @@ function run(mode: string, api: string, value: unknown, model = 'default-fixture
     ? ['file', mode, api, join(temp, 'input.json'), model]
     : [mode, api, text, model];
   if (args[0] === 'file') writeFileSync(args[3]!, text);
-  const p = spawnSync(binary, ['--', ...args], { cwd: root, encoding: 'utf8', timeout: 60000, maxBuffer: 2 ** 25 });
+  const p = spawnSync(binary, ['--RTS', ...args], { cwd: root, encoding: 'utf8', timeout: 60000, maxBuffer: 2 ** 25 });
   if (p.error) throw p.error;
   return { code: p.status, out: p.stdout.trim(), err: p.stderr.trim() };
 }

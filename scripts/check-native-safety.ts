@@ -13,16 +13,24 @@ export interface Manifest {
 }
 interface Token { value: string; literal: boolean; line: number }
 
-const REVIEWED_COMPILER = 'bend 2.0.37';
+const REVIEWED_COMPILER = 'bend 2.0.38';
 const WORD_CHAR = /[A-Za-z0-9_./-]/;
 const FOREIGN_IMPORT = /^"[A-Za-z0-9_./-]+\.c"$/;
 const EFFECT_CAPABILITY = /(^|[.])(IO|File|Socket|Listener|Window|Audio|Chan)([.]|$)/;
 // Bend 2.0.32+ prints one verdict. A clean check exits 0 with exactly this text.
 const CLEAN_VERDICT = 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.';
 // The only non-clean verdict accepted, and only for driver modules: it exits 1
-// and lists nothing but the defs that rely on (allowlisted) foreign code.
-const DRIVER_VERDICT =
-  /^SOME PROOFS FAIL\nError: [0-9]+ defs? rel(?:y|ies) on unsafe or foreign code:\n(?:- [A-Za-z0-9_./-]+\n?)+$/;
+// and names nothing but defs that depend on (allowlisted) foreign effects. Bend
+// 2.0.38+ groups them by reason; a "defs that depend on @unsafe" group (or any
+// other reason) is rejected. The hint Bend adds when only imports carry those
+// defs lists the same names and is accepted.
+const VERDICT_NAMES = '[A-Za-z0-9_./-]+(?:, [A-Za-z0-9_./-]+)*';
+const DRIVER_VERDICT = new RegExp(
+  '^SOME PROOFS FAIL\\nError: [0-9]+ defs? rel(?:y|ies) on unsafe or foreign code:\\n'
+    + `defs that depend on foreign effects: ${VERDICT_NAMES}`
+    + '(?:\\nHint: no law or proof uses these defs\\. Move them to a file this proof does not import, '
+    + `and the proofs will check: ${VERDICT_NAMES})?$`,
+);
 
 // Strip line comments, preserve literals for imports, and do not interpret
 // quoted/commented '?' or '@unsafe' text as code. This is not a typechecker.

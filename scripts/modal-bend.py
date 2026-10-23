@@ -25,9 +25,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import modal
 
-BEND = "2.0.37"
-# https://github.com/bendlang/bend/releases/tag/v2.0.37, as in scripts/setup-bend-ci.sh
-BEND_SHA256 = "84c32465a39bc9ac315eade23f470cb8db03153dc860f89564fcfec153c3e445"
+BEND = "2.0.38"
+# https://github.com/bendlang/bend/releases/tag/v2.0.38, as in scripts/setup-bend-ci.sh
+BEND_SHA256 = "f19d088b079c9e1a8834ecd153b7d58c11a5f8f9ab1bdb78dbc96a6bf49aaa81"
 ARCHIVE = f"https://github.com/bendlang/bend/releases/download/v{BEND}/bend-{BEND}-linux-x64.tar.gz"
 
 image = (

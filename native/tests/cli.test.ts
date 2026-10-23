@@ -16,6 +16,15 @@ function run(args: string[], options: Options = {}) {
   };
   return capture([nativeBin, '--', ...args], { env, input: options.input ?? '' });
 }
+/** As run, without the leading '--' that older callers pass. */
+function runBare(args: string[], options: Options = {}) {
+  const env = {
+    PATH: options.path ?? process.env.PATH!,
+    BEND_NO_TELEMETRY: '1',
+    JEV_FABRIC_HOME: options.home ?? join(root, 'jobs'),
+  };
+  return capture([nativeBin, ...args], { env, input: options.input ?? '' });
+}
 const privateMode = (path: string) => statSync(path).mode & 0o777;
 
 const echoProgram = `import Base
@@ -94,6 +103,39 @@ test('compiler failures and option injection fail closed; outside deadline bound
   expect(Date.now() - start).toBeLessThan(1500);
 });
 
+// Bend 2.0.37 runtimes removed a leading '--' before the program saw it; Bend 2.0.38
+// passes it through, and jev-fabric drops exactly one itself, so both spellings agree.
+test("'jev-fabric -- <command>' and 'jev-fabric <command>' are the same call", async () => {
+  const commands = [
+    ['--version'],
+    ['--help'],
+    ['capabilities'],
+    ['exec', '2000', '/bin/echo', '--', 'a', '--', 'b'],
+    ['exec', '--timeout-ms', '2000', '--', '/bin/echo', '--timeout-ms'],
+    ['status', '../escape'],
+    ['no-such-command'],
+  ];
+  for (const args of commands) {
+    const dashed = await run(args);
+    const bare = await runBare(args);
+    expect(bare, args.join(' ')).toEqual(dashed);
+  }
+  expect((await run(['--version'])).out).toContain('Bend 2.0.38');
+  expect((await run(['exec', '2000', '/bin/echo', '--', 'a', '--', 'b'])).out).toContain('-- a -- b');
+  // A durable job started either way runs the same literal argv through the worker.
+  const outputs: string[] = [];
+  for (const launch of [run, runBare]) {
+    const start = await launch(['start', '3000', '/bin/echo', '--', 'job']);
+    expect(start.code, start.err).toBe(0);
+    const { id } = JSON.parse(start.out);
+    expect(JSON.parse((await launch(['wait', id, '3000'])).out).state).toBe('exited');
+    const rows = jsonLines((await launch(['events', id])).out);
+    outputs.push(rows.filter(x => x.type === 'process.output' && x.data.stream === 'stdout').map(x => x.data.text).join(''));
+  }
+  expect(outputs[1]).toEqual(outputs[0]);
+  expect(outputs[0]).toBe('-- job\n');
+});
+
 test('native source loop cannot suppress outside execution deadline', async () => {
   const file = join(root, 'spin.bend');
   await Bun.write(file, spinProgram);
@@ -104,7 +146,7 @@ test('native source loop cannot suppress outside execution deadline', async () =
   expect(Date.now() - start).toBeLessThan(8000);
   const program = join(home, readdirSync(home).filter(name => !name.startsWith('.'))[0]!, 'program');
   expect(statSync(program).size).toBeGreaterThan(0);
-  const compiled = await run(['exec', '300', program, '--', 'dynamic']);
+  const compiled = await run(['exec', '300', program, '--RTS', 'dynamic']);
   expect(compiled.code, compiled.out + compiled.err).toBe(124);
   expect(JSON.parse(compiled.out).timedOut).toBe(true);
 });

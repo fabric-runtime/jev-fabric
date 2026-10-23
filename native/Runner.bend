@@ -29,7 +29,9 @@ def run_remaining(path: String, args: List<String>, remaining: U32, expired: Boo
       IO.die(Unit, 124, "native program deadline expired during compilation")
     case False{}:
       do IO<Unit>:
-        result : Process.Report <- Process.run_stdin(Con{path, Con{"--", args}}, remaining)
+        # The program was compiled by Bend 2.0.38, whose runtime takes --RTS as "pass
+        # every later argument through verbatim" and removes it; IO.args sees args only.
+        result : Process.Report <- Process.run_stdin(Con{path, Con{"--RTS", args}}, remaining)
         report(result)
 
 # Compilation and the program share one deadline.

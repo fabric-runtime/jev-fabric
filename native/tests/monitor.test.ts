@@ -29,7 +29,7 @@ beforeAll(() => {
 }, 300000);
 
 async function run(bin: string, args: string[], env: Record<string, string> = jobEnv) {
-  const argv = [bin, '--threads', '2', '--', ...args];
+  const argv = [bin, '+RTS', '--threads', '2', '-RTS', ...args];
   const { out, err, code } = await capture(argv, { env, stdin: 'ignore' });
   return { stdout: out, stderr: err, code };
 }

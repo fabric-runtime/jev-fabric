@@ -64,7 +64,8 @@ async function run(args: string[], options: Options = {}) {
     CREDENTIAL_RECORD: cred,
     ...options.env,
   };
-  const argv = [options.program ?? bin, '--', ...args];
+  // jev-fabric drops one leading '--'; a fixture's own main takes --RTS (Bend 2.0.38).
+  const argv = options.program ? [options.program, '--RTS', ...args] : [bin, '--', ...args];
   const { out, err, code } = await capture(argv, { env, input: options.input ?? '' });
   expect(out + err).not.toContain('SYNTHETIC_TIMER_KEY');
   const curls = existsSync(curl)

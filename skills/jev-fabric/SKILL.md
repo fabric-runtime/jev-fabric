@@ -10,13 +10,15 @@ runtime). It owns child processes in their own process groups, keeps bounded
 receipts and event logs, and makes **explicit** typed Jev decisions. No output ever
 triggers a model call by itself: you decide when to ask.
 
-The first `--` separates Bend runtime options from application arguments. Every
-command starts with `jev-fabric --`.
+Every command here starts with `jev-fabric --`; the leading `--` is optional and
+dropped (`jev-fabric exec ...` is the same call). Bend runtime options go between
+`+RTS` and `-RTS`, and those words, like `--RTS`, are read by the runtime wherever
+they appear on jev-fabric's own command line.
 
 ## Check the install
 
 ```bash
-jev-fabric -- --version        # 0.8.0-native (Bend 2.0.37)
+jev-fabric -- --version        # 0.8.0-native (Bend 2.0.38)
 jev-fabric -- capabilities     # {"version":…,"protocol":2,"store":1,"platform":…,"features":[…]}
 ```
 
@@ -226,7 +228,7 @@ shared deadline scopes (a game bot, a crawler, a supervisor), write a Bend
 program against the library and run it:
 
 ```bash
-jev-fabric -- run program.bend arg1 arg2     # compiles (needs `bend` 2.0.37), then runs
+jev-fabric -- run program.bend arg1 arg2     # compiles (needs `bend` 2.0.38), then runs
 ```
 
 Legacy Jev HTTPS keeps one pooled TLS connection per process, so a Bend program

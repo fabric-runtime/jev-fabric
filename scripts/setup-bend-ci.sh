@@ -1,21 +1,21 @@
 #!/bin/sh
 set -eu
 # CI-only, project-owned installation. Never alters ~/.bend or shell profiles.
-# Archive hashes are from https://github.com/bendlang/bend/releases/tag/v2.0.37 for Bend 2.0.37.
+# Archive hashes are from https://github.com/bendlang/bend/releases/tag/v2.0.38 for Bend 2.0.38.
 [ "${CI:-}" = true ] || { echo 'This setup script is CI-only.' >&2; exit 1; }
 case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64) platform=darwin-arm64; sum=846d25ccf0c12d5d1e5e648c0b3ba4c8397fdb852812ac00ef8135998f8e194b ;;
-  Darwin-x86_64) platform=darwin-x64; sum=93eea3f54b7b91f28ea15a1b9f2d825afa58c1fcd417c11024a62f8c3506b813 ;;
-  Linux-aarch64) platform=linux-arm64; sum=b65d452e5c68a4c486e353220d4298ba5d76f535db47109a7d76ffdf72efafb1 ;;
-  Linux-x86_64) platform=linux-x64; sum=84c32465a39bc9ac315eade23f470cb8db03153dc860f89564fcfec153c3e445 ;;
+  Darwin-arm64) platform=darwin-arm64; sum=9d5331d01e82dac40dd012953e78221f533f7df7ad7e16b07f1f7bd0dcd088dd ;;
+  Darwin-x86_64) platform=darwin-x64; sum=870be3b91290e14259dba432788c71d7190d8984f8606255e5333c3a03896d5a ;;
+  Linux-aarch64) platform=linux-arm64; sum=1f7c6e74a6ef7412cf08eee0e4d45fe5960f89d66fdaca2466f6a4856f0d400a ;;
+  Linux-x86_64) platform=linux-x64; sum=f19d088b079c9e1a8834ecd153b7d58c11a5f8f9ab1bdb78dbc96a6bf49aaa81 ;;
   *) echo 'Unsupported native CI platform.' >&2; exit 1 ;;
 esac
-root="${RUNNER_TEMP:?}/jev-bend-2.0.37"
+root="${RUNNER_TEMP:?}/jev-bend-2.0.38"
 mkdir -p "$root"
 archive="$root/compiler.tar.gz"
 trap 'rm -f "$archive"' EXIT
-release='https://github.com/bendlang/bend/releases/download/v2.0.37'
-curl --proto '=https' --tlsv1.2 -fsSL "$release/bend-2.0.37-$platform.tar.gz" -o "$archive"
+release='https://github.com/bendlang/bend/releases/download/v2.0.38'
+curl --proto '=https' --tlsv1.2 -fsSL "$release/bend-2.0.38-$platform.tar.gz" -o "$archive"
 if command -v sha256sum >/dev/null 2>&1; then
   printf '%s  %s\n' "$sum" "$archive" | sha256sum -c -
 else

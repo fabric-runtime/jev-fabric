@@ -121,7 +121,16 @@ def cli() -> List<&2, Bool>:
     plan_is(Cli.parse(["events", "--timeout-ms", "500", "id"]), ["events", "id", "0", "500"]),
     bad_cli(Cli.parse(["events", "--timeout-ms", "300001", "id"])),
     plan_is(Cli.parse(["follow", "--timeout-ms", "250", "id", "3"]), ["follow", "250", "id", "3"]),
-    bad_cli(Cli.parse(["follow", "id", "1", "2"]))
+    bad_cli(Cli.parse(["follow", "id", "1", "2"])),
+    # One leading "--" is dropped (Bend 2.0.38 no longer removes it), and only one.
+    plan_is(Cli.parse(["--", "start", "--label", "dev server", "--timeout-ms", "5", "--", "--label"]), ["__start", "5", "dev server", "", "batch", "--label"]),
+    plan_is(Cli.parse(["--", "events", "--timeout-ms", "500", "id", "7"]), ["events", "id", "7", "500"]),
+    plan_is(Cli.parse(["--", "serve", "--timeout-ms", "60000", "1", "60000"]), ["serve", "60000", "1", "60000"]),
+    plan_is(Cli.parse(["serve", "--timeout-ms", "60000", "1", "60000"]), ["serve", "60000", "1", "60000"]),
+    plan_is(Cli.parse(["--", "--version"]), ["--version"]),
+    plan_is(Cli.parse(["--", "--", "x"]), ["--", "x"]),
+    plan_is(Cli.parse(["--"]), []),
+    bad_cli(Cli.parse(["--", "events", "--timeout-ms", "300001", "id"]))
   ]
 
 def main() -> IO(Unit):

@@ -11,7 +11,7 @@ function selfCheck(name: string) {
   return spawnSync(resolve(root, `build/test-${name}`), [], { encoding: 'utf8', timeout: 30000 });
 }
 function run(mode: string, ...args: string[]) {
-  const p = spawnSync(binary, ['--', mode, ...args], {
+  const p = spawnSync(binary, ['--RTS', mode, ...args], {
     cwd: root,
     encoding: 'utf8',
     timeout: 15000,

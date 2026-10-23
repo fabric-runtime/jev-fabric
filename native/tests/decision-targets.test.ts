@@ -19,7 +19,7 @@ const profiles = {
 const env = { DECISION_PROFILES: JSON.stringify(profiles) };
 function run(args: string[], extra: Record<string, string> = {}) {
   const selected = args[0] === 'resolve' ? bin : resolve('build/test-decision-target-cli');
-  const result = Bun.spawnSync([selected, '--', ...args], {
+  const result = Bun.spawnSync([selected, '--RTS', ...args], {
     env: { PATH: process.env.PATH!, BEND_NO_TELEMETRY: '1', ...extra },
     stdout: 'pipe', stderr: 'pipe', timeout: 10000,
   });

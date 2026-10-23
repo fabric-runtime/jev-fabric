@@ -826,8 +826,11 @@ def owned(args: List<&2, String>) -> List<String>:
     case Con{head, tail}:
       Con{head, owned(tail)}
 
+# This same executable. --RTS makes the Bend 2.0.38 runtime pass every later
+# argument through verbatim (a +RTS in a requested argv included) and is removed
+# by the runtime, so the command line reaches Cli.parse unchanged.
 def cli(self: String, args: List<&2, String>) -> List<&2, String>:
-  Con{self, Con{"--", args}}
+  Con{self, Con{"--RTS", args}}
 
 def work(defaults: Defaults) -> U32:
   match defaults:

@@ -53,8 +53,8 @@ class Session {
   private readonly reader;
   private readonly decoder = new TextDecoder();
 
-  constructor(args: string[] = [], env: Env = {}) {
-    this.child = Bun.spawn([nativeBin, '--', 'serve', ...args], {
+  constructor(args: string[] = [], env: Env = {}, prefix: string[] = ['--']) {
+    this.child = Bun.spawn([nativeBin, ...prefix, 'serve', ...args], {
       env: { PATH: process.env.PATH!, BEND_NO_TELEMETRY: '1', JEV_FABRIC_HOME: home, ...env },
       stdin: 'pipe',
       stdout: 'pipe',
@@ -113,6 +113,25 @@ test('serve announces its protocol, version, deadline, budgets and capabilities'
   const defaults = await session();
   expect(defaults.banner.ready).toMatchObject({ timeoutMs: 3600000, maxEvaluations: 1, maxTokens: 100000 });
   await defaults.s.close();
+});
+
+// Reflex's daemon launches `jev-fabric -- serve --timeout-ms 60000 1 60000` and writes
+// JSONL to its stdin. With or without the '--', serve must answer identically, and a
+// requested argv reaches the process verbatim, Bend runtime markers included.
+test("'-- serve' and 'serve' are the same session, as Reflex launches it", async () => {
+  const replies = [];
+  for (const prefix of [['--'], []]) {
+    const s = new Session(['--timeout-ms', '60000', '1', '60000'], {}, prefix);
+    const banner = await s.line();
+    const echo = await s.ask({
+      id: 1, op: 'exec', argv: ['/bin/echo', '--', '+RTS', '--threads', '2', '-RTS', '--RTS', 'x'],
+    });
+    replies.push({ banner, echo, closed: await s.close() });
+  }
+  expect(replies[0].banner.ready).toMatchObject({ protocol: 2, timeoutMs: 60000, maxEvaluations: 1, maxTokens: 60000 });
+  expect(replies[0].echo).toMatchObject({ id: 1, ok: true, result: { exitCode: 0, stdout: '-- +RTS --threads 2 -RTS --RTS x\n' } });
+  expect(replies[0].closed).toEqual({ code: 0, err: '' });
+  expect(replies[1]).toEqual(replies[0]);
 });
 
 // Node, Bun and libuv give children a socketpair, not a pipe, and Linux cannot

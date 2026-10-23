@@ -18,7 +18,7 @@ beforeAll(() => {
 }, 370000);
 
 function run(mode: string, ...args: string[]) {
-  const p = spawnSync(binary, ['--', mode, ...args], {
+  const p = spawnSync(binary, ['--RTS', mode, ...args], {
     cwd: root, encoding: 'utf8', timeout: 60000, maxBuffer: 2 ** 25,
   });
   if (p.error) throw p.error;

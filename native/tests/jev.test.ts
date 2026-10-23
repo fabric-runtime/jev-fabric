@@ -81,7 +81,7 @@ async function run(options: Options = {}) {
   const cred = join(root, `cred-${n}`);
   const argv = [
     resolve('build/test-jev-client'),
-    '--',
+    '--RTS',
     options.request ?? request,
     String(options.calls ?? 2),
     String(options.tokens ?? 100),

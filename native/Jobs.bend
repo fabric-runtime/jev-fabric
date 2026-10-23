@@ -775,8 +775,10 @@ def spawned(+id: String, +meta: String, result: Result<&1, &1, U32 & String, Str
 
 # This same executable, re-entered through the private __job-worker command:
 # `__job-worker <id> <ms> <mode> <cwd> <command...>`, cwd "" to inherit.
+# --RTS makes the Bend 2.0.38 runtime pass every later argument through verbatim
+# (a +RTS in the job's own argv included); the runtime itself removes it.
 def worker_argv(self: String, id: String, +timeout: U32, mode: String, cwd: String, argv: List<String>) -> List<String>:
-  Con{self, Con{"--", Con{"__job-worker", Con{id, Con{U32.show(timeout), Con{mode, Con{cwd, argv}}}}}}}
+  Con{self, Con{"--RTS", Con{"__job-worker", Con{id, Con{U32.show(timeout), Con{mode, Con{cwd, argv}}}}}}}
 
 # meta.json (start time, label, lifetime) is written before the worker exists, so
 # every reader of this job, including the worker, sees it.

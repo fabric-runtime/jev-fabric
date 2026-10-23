@@ -15,7 +15,7 @@ const active = new Set<string>();
 const privateMode = (path: string) => statSync(path).mode & 0o777;
 
 async function command(args: string[], overrides: Record<string, string> = {}) {
-  const argv = [bin, '--threads', '2', '--', ...args];
+  const argv = [bin, '+RTS', '--threads', '2', '-RTS', ...args];
   const options = { env: { ...env, ...overrides }, stdin: 'ignore' } as const;
   const { out, err, code } = await capture(argv, options);
   return { stdout: out, stderr: err, code };

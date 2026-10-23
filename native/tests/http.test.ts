@@ -81,7 +81,7 @@ async function post(path: string, options: Options = {}) {
     HTTPS_PROXY: unreachableProxy,
     ALL_PROXY: unreachableProxy,
   };
-  const argv = [resolve('build/test-http'), '--', url, input];
+  const argv = [resolve('build/test-http'), '--RTS', url, input];
   if (options.repeat !== undefined) argv.push(String(options.repeat));
   const { out, err, code } = await capture(argv, { env });
   expect(code, err).toBe(0);

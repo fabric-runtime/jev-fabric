@@ -22,7 +22,7 @@ the native executable, through the thin Python and TypeScript clients in
 
 ## Minimal practical bridge
 
-Stock Bend (now 2.0.37) has native files, sockets, clocks, channels and
+Stock Bend (now 2.0.38) has native files, sockets, clocks, channels and
 concurrent IO, and since 2.0.28 a bounded `Process.run`, but no child-process
 group ownership, detached jobs or HTTPS stack. Pure Bend libraries supply the
 JSON/UTF-8 and typed decision logic; the system libcurl supplies verified,
@@ -63,6 +63,42 @@ access cannot be dropped merely to minimize line count.
   inside such supervision.
 - System libcurl/curl, compiler, imported native programs, PATH and CA
   configuration are trusted. Keys stay out of argv/logs but are accessible to their owning process.
+
+## Bend 2.0.38 migration
+
+The current compiler is Bend 2.0.38. Its four official archives match the
+upstream release digests (now pinned in `scripts/setup-bend-ci.sh` and
+`scripts/modal-bend.py`); the installed macOS arm64 compiler is byte-identical
+and passes `codesign --verify --strict`.
+
+- **Argv (`+RTS`).** A compiled program's runtime options now go between `+RTS`
+  and `-RTS` (or in `BENDRTS`), and the runtime reads those words anywhere on
+  the command line. A leading `--` is no longer removed: it reaches `IO.args`.
+  `--RTS` passes every later argument through verbatim and is itself removed.
+  `Cli.parse` therefore drops one leading `--`, so `jev-fabric -- <command>` and
+  `jev-fabric <command>` are the same call (existing callers, the clients and
+  `jev-fabric -- serve ...` launchers keep working). The worker re-entry
+  (`Jobs.worker_argv`, `ServeCore.cli`) and `run`'s compiled program get
+  `--RTS`, so a requested argv containing `+RTS` or `--` stays literal. Tests
+  pass `+RTS --threads 2 -RTS` instead of `--threads 2 --`.
+- **Trust verdict.** `--check-only` now groups the defs it lists by reason
+  (`defs that depend on foreign effects: ...`, `defs that depend on @unsafe: ...`,
+  plus a hint when only imports carry them). The safety gate accepts drivers
+  only with the foreign-effects group; an `@unsafe` group now fails it.
+- **Effect ABI.** The C helpers the project calls (`io_cstr`, `io_str`,
+  `io_node`, `io_tup`, `io_done`, `io_fail`, `io_hand`/`io_hand_v`, `io_work`,
+  `io_mem`, `io_nul`, `io_tick`, `io_eff`, `term_pak`, `term_aux`, `ctr_take`,
+  `spare_free`, `cls_fit`, `CID(...)`) and the `IoWork` fields are unchanged;
+  clang still gets `-std=c11 -O3 -lpthread -lm`. No project C changed.
+- **Base.** `TCP.send`/`try_send` now return unsent bytes as `List<&2, U32>`
+  (unused here). `String.order` is reimplemented with the same ordering; the
+  exact-decimal temperature preflight in `DecisionLocal` that uses it still
+  passes its boundary tests.
+
+Local macOS arm64 verification passed: the safety gate across 81 modules, 22
+pure modules, four proof roots and 11 explicit foreign effects; the native
+fixtures; and 324 offline tests (6,152 assertions). `--version` reports
+`0.8.0-native (Bend 2.0.38)`. No live model calls were made.
 
 ## Bend 2.0.37 migration
 

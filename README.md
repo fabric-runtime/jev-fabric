@@ -67,7 +67,7 @@ prefers your own compatible install and falls back to this package.
 <details>
 <summary>Build from source</summary>
 
-Requires **Bend 2.0.37**, Clang and Bun (for the build-time safety gate).
+Requires **Bend 2.0.38**, Clang and Bun (for the build-time safety gate).
 
 ```sh
 sh scripts/build-native.sh             # or: bun run build
@@ -95,7 +95,11 @@ jev-fabric -- exec --cwd /srv/app /bin/ls                  # start in another di
 jev-fabric -- capabilities                                 # protocol, store format, features
 ```
 
-The first `--` separates Bend runtime options from yours. Shell syntax only
+A single leading `--` is optional: jev-fabric drops it, so `jev-fabric -- exec ...`
+and `jev-fabric exec ...` are the same call. Bend runtime options go between
+`+RTS` and `-RTS`, and the runtime reads `+RTS`, `-RTS` and `--RTS` wherever they
+appear on jev-fabric's own command line; pass such words to a child through
+`serve` or `--RTS` (everything after it is literal). Shell syntax only
 happens when you invoke a shell. Every child gets its own process group and a
 deadline; receipts keep 32 KiB tails, spools keep the first 1 MiB per stream,
 jobs keep their latest 64 events, and any loss is disclosed, never silent.
