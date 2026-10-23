@@ -8,7 +8,7 @@ def Error() -> Type:
   U32 & String
 
 def version() -> String:
-  "0.8.0-native"
+  "0.8.1-native"
 
 type Options is Type:
   Options{

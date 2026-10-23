@@ -18,7 +18,7 @@ they appear on jev-fabric's own command line.
 ## Check the install
 
 ```bash
-jev-fabric -- --version        # 0.8.0-native (Bend 2.0.38)
+jev-fabric -- --version        # 0.8.1-native (Bend 2.0.38)
 jev-fabric -- capabilities     # {"version":…,"protocol":2,"store":1,"platform":…,"features":[…]}
 ```
 

@@ -103,7 +103,7 @@ async function session(args: string[] = [], env: Env = {}) {
 test('serve announces its protocol, version, deadline, budgets and capabilities', async () => {
   const { s, banner } = await session(['--timeout-ms', '60000', '3', '500']);
   expect(banner.ready).toMatchObject({
-    protocol: 2, version: '0.8.0-native', timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500, store: 1,
+    protocol: 2, version: '0.8.1-native', timeoutMs: 60000, maxEvaluations: 3, maxTokens: 500, store: 1,
   });
   expect(Object.keys(banner.ready)).toEqual([
     'protocol', 'version', 'timeoutMs', 'maxEvaluations', 'maxTokens', 'store', 'platform', 'features',

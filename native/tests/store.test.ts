@@ -24,7 +24,7 @@ test('capabilities is one JSON line naming the protocol, store, platform and fea
   expect(r.code, r.err).toBe(0);
   expect(r.out.trim().split('\n').length).toBe(1);
   const caps = JSON.parse(r.out);
-  expect(caps).toMatchObject({ version: '0.8.0-native', protocol: 2, store: 1 });
+  expect(caps).toMatchObject({ version: '0.8.1-native', protocol: 2, store: 1 });
   expect(caps.platform).toMatch(/^(darwin|linux)-(arm64|x64)$/);
   expect(Object.keys(caps)).toEqual(['version', 'protocol', 'store', 'platform', 'features']);
   expect(caps.features).toEqual(expect.arrayContaining(['follow', 'list', 'label', 'start-24h', 'sessions']));

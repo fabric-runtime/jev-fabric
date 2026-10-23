@@ -1,30 +1,21 @@
 Native process orchestration with typed, explicit Jev decisions.
 
-## Changes in 0.8.0
+## Changes in 0.8.1
 
-TypeSafe's Jev 1.14 features, in `decide`. TypeSafe calls them experimental
-("danger zone"): opt-in, less reliable than text and liable to change, so don't
-rely on them for production decisions.
-
-- Images for TypeSafe. Give each image a `ref`, text written into the state,
-  instructions or criteria where the image belongs: TypeSafe puts the image
-  there. PNG and JPEG. jev-fabric sends them as TypeSafe's referenced `assets`
-  with the `TypeSafe-Danger-Zone-Images: true` header. Jev 1.13 and 1.14 both
-  take images. Other adapters attach images whole and ignore `ref`.
-- `box` questions: one bounding box around what the instructions name in an
-  image, answered as `box: {top, bottom, left, right}` (fractions of the image
-  from its top-left corner) with an optional `confidence`. TypeSafe only, Jev
-  1.14 (`jev-preview` or `jev-1.14.0` until TypeSafe moves `jev-latest`).
-  A Box question needs an image; other providers refuse it before any call.
-- Long context: `providerOptions: {"longContext": true}` sends
-  `TypeSafe-Danger-Zone-Long-Context: true`, raising Jev's limit from 64k tokens
-  a request (32k a question) to 262k.
-- OpenRouter's default model is now `~typesafe/jev-latest`, which follows the
-  newest Jev, for both `decide` and `jev` (was `typesafe/jev-1.13`). OpenCode
-  stays on `jev-1.13`: it serves no other Jev yet.
-- The TypeScript client types `box` questions and answers and image `ref`s.
-- Unchanged: protocol 2, store format 1, the legacy `jev` request schema, and
-  every other route and default.
+- Built with Bend 2.0.38 (was 2.0.37). The native effect ABI and the project's
+  C are unchanged.
+- A single leading `--` is now optional: `jev-fabric -- exec ...` and
+  `jev-fabric exec ...` are the same call, so existing scripts, the clients and
+  `jev-fabric -- serve` launchers keep working.
+- Bend runtime options now go between `+RTS` and `-RTS` (or in `BENDRTS`), and
+  the runtime reads those words wherever they appear on jev-fabric's own
+  command line. To pass them to a child, use `serve` or put them after `--RTS`,
+  which passes everything after it through verbatim. Durable jobs, `serve` and
+  `run` re-enter with `--RTS`, so a requested argv stays literal.
+- Compiling your own `jev-fabric -- run` programs now needs Bend 2.0.38.
+- The safety gate reads 2.0.38's grouped trust verdict: drivers pass only with
+  the "foreign effects" group, and any `@unsafe` group fails the build.
+- Unchanged: protocol 2, store format 1, every route, preset and default.
 
 ## Install
 
