@@ -45,7 +45,7 @@ image = (
 app = modal.App("jev-fabric-bend", image=image)
 
 
-@app.function(cpu=4, memory=16384, timeout=1800, retries=0)
+@app.function(scaledown_window=2, cpu=4, memory=16384, timeout=1800, retries=0)
 def emit(sources: bytes, target: str) -> tuple[str, bytes, float, str]:
     """The C for one target, zlib-compressed, with Bend's time and output."""
     import tempfile
