@@ -1,7 +1,7 @@
 # Shell composition
 
 One vocabulary for running, observing and driving processes, shared by the
-`jev-fabric` CLI, the `serve` protocol, the Bend library and hosts that embed
+`jev-fabric` CLI, the `serve` protocol, the TypeScript library and hosts that embed
 jev-fabric (such as Pi Fabric). A caller should be able to move a command between
 these surfaces without relearning its lifetime, its observation calls or its
 records. This document is the contract; the [CLI](native-api.md) and
@@ -25,15 +25,16 @@ Every child has a **lifetime** (who owns it) and an **I/O mode** (how you talk t
 A `session` child is the low-latency choice: its stdin is a pipe held by the
 owner and a write reaches it immediately (a `serve` echo round trip, write then
 read, takes a few milliseconds). A `durable` interactive child is fed
-through a private input queue that its worker drains every tick (25 ms), so it
-trades latency for surviving its launcher. Realtime control loops use
+through a private input queue that its worker drains as writers append (it
+watches the queue file, and polls it at least every 100 ms), so it trades a
+little latency for surviving its launcher. Realtime control loops use
 `session` children; long-lived services that must outlive a harness use `durable`.
 A durable interactive child starts with `start --input pipe`; its queue holds at
 most 1 MiB not yet read, and it is not replayed if the worker crashes.
 
 Ending an owner stops its `session` children (process group, then force) and
 never touches `durable` jobs; if the owner is killed outright, each child's
-worker notices within 25 ms and stops it. No lifetime is restart-durable across
+worker notices within about 100 ms and stops it. No lifetime is restart-durable across
 a reboot.
 
 Any child may start in a working directory of its own: `cwd` in `serve`,
@@ -134,8 +135,8 @@ cached or echoed. This lets an embedding host keep its own login state authorita
 ## Budgets and deadlines
 
 Budgets are explicit and never renewed implicitly: a `serve` connection owns one
-Jev call/token budget and one deadline (up to 24 hours); a Bend program threads
-an affine client and a shared `Scope`. A `session` child's lifetime is capped by
+Jev call/token budget and one deadline (up to 24 hours); a TypeScript program
+holds a `Jev` client with its own budget and a shared `Scope`. A `session` child's lifetime is capped by
 its own `timeoutMs` (up to 24 hours) and by its owner. Durable jobs accept
 lifetimes up to 24 hours.
 

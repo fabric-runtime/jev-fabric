@@ -63,7 +63,7 @@ are stripped. Map answers to branches you wrote; never execute answer text.
 ## Budgets
 
 `jev <request.json> [max-tokens]` makes exactly one evaluation (default 100000
-reported tokens). In Bend, `Jev.connect(max_evaluations, max_tokens)` bounds a
+reported tokens). In a program, `Jev.connect({maxEvaluations, maxTokens})` bounds a
 client: once calls or reported tokens are exhausted, later evaluations fail without
 network access. Reported usage is accounted after each call, so the final request
 may overshoot the token limit; always set a call limit too.
@@ -78,7 +78,7 @@ typed answer.
 per chunk, then ask a final `choice` among the chunk winners. A Wikipedia-race bot
 choosing among 2,000 links uses this tournament: 9 chunk calls plus one final call.
 
-**Game-speed loops.** Keep one process and one client alive (a Bend program or a
+**Game-speed loops.** Keep one process and one client alive (a TypeScript program or a
 persistent `Session`), render the game state as structured JSON in `state`, and ask
 one `choice` per tick with the legal actions as criteria. Pooled HTTPS keeps
 latency to the service's warm round trip instead of a TLS handshake per call.

@@ -1,25 +1,33 @@
-# Native API and execution contract
+# Library API and execution contract
 
-Use stock Bend 2.0.38 native compilation. Imports below are relative to your
-source file; see `examples/native/`. Native code, PATH executables and imported
-modules are trusted. Affine ownership is a programming discipline, not secret
-isolation from the program that owns the client.
+jev-fabric is one executable (TypeScript on Bun, compiled with
+`bun build --compile`) and a TypeScript library, `jev-fabric`, for programs
+that compose processes, durable jobs and Jev decisions. Programs run with
+`jev-fabric -- run program.ts`, which uses the Bun built into the executable,
+or with Bun directly. The library is trusted code in the program's own
+process: budgets and handles are a programming discipline, not isolation from
+the program that owns them. Upgrading a Bend program? See
+[Bend to TypeScript](bend-to-typescript.md).
+
+```ts
+import {Scope, Session, Job, Jev, exec, receipt} from 'jev-fabric'
+```
 
 ## CLI
 
-All commands follow `build/jev-fabric --`:
+All commands follow `jev-fabric --`:
 
 | Command | Meaning |
 | --- | --- |
 | `exec [--timeout-ms N] [--stdin] [--cwd DIR] [--] <command> [args...]` | Literal argv, owned process group, bounded final receipt |
-| `run [--timeout-ms N] [--] <program.bend> [args...]` | Compile into a private directory, then run with inherited stdin; one outside deadline covers both |
+| `run [--timeout-ms N] [--] <program.ts\|.js> [args...]` | Run a TypeScript or JavaScript program with the built-in Bun, with inherited stdin, under one deadline; prints its receipt |
 | `validate <request.json>` | Strict UTF-8/JSON plus typed Jev request validation; no credentials/network |
 | `jev [--timeout-ms N] <request.json> [max-tokens]` | One explicit legacy Jev evaluation; default 100000 reported tokens |
 | `decide [--timeout-ms N] <request.json> [max-tokens]` | One additive lossless decision; default 100000 reported tokens; inspect `status` and `budget` |
 | `validate-decision <request.json>` | Offline decision request-schema validation; no credentials/network |
 | `resolve-decision [target flags] <request.json>` | Offline resolved target and adapter preflight; flags: `--profile`, `--provider`, `--model`, `--api`, `--endpoint` (also accepted by `decide`); see [targets](decision-targets.md) |
 | `decision-providers` | Registered decision preset definitions, not live model availability or credential checks |
-| `start [--timeout-ms N] [--label TEXT] [--cwd DIR] [--input pipe] [--] <command> [args...]` | Native detached worker; returns private job ID. Lifetime 1..86400000 ms. `--input pipe` keeps stdin open for `write` |
+| `start [--timeout-ms N] [--label TEXT] [--cwd DIR] [--input pipe] [--] <command> [args...]` | Detached worker; returns private job ID. Lifetime 1..86400000 ms. `--input pipe` keeps stdin open for `write` |
 | `write <id> (--stdin \| -- text...)` | Queue text (standard input, or the words joined by spaces) for an interactive job's stdin; prints a write record |
 | `close-input <id>` | End an interactive job's stdin after what is queued; idempotent |
 | `read [--wait-ms N] [--base64] <id> <stdout\|stderr> [offset] [max]` | Raw bytes of one stream from a byte offset, as a read record; with `--wait-ms`, a long poll of 1..300000 ms |
@@ -31,16 +39,16 @@ All commands follow `build/jev-fabric --`:
 | `stop <id>` | Idempotent cooperative stop through a private marker, never arbitrary PID signalling |
 | `serve [--timeout-ms N] [max-evaluations [max-tokens]]` | JSONL session on stdin/stdout: concurrent requests matched by id, one shared Jev/decision budget, one deadline (1..86400000 ms) and the session's children. See [the serve protocol](serve-protocol.md) |
 | `capabilities` | One JSON line: `version`, `protocol`, `store`, `platform`, `features` |
-| `update` | Print and run `curl -fsSL …/install.sh \| sh`, like `bend update`; exits with the installer's status. `JEV_FABRIC_PREFIX`/`JEV_FABRIC_VERSION` pass through |
+| `update` | Print and run `curl -fsSL …/install.sh \| sh`; exits with the installer's status. `JEV_FABRIC_PREFIX`/`JEV_FABRIC_VERSION` pass through |
 | `watch [--timeout-ms N] <id> <literal>` | Live bounded line batches, loss records and a final observation summary; duration 1..300000 ms |
 
 Timers may be omitted. Defaults and configuration:
 
 | Operations | Default maximum | Environment override |
 | --- | --- | --- |
-| `exec`, `run`, `start`, `serve` sessions, timer-free Process/Session APIs, `Scope.open` | 1 hour | `JEV_FABRIC_TIMEOUT_MS` |
+| `exec`, `run`, `start`, `serve` sessions; library `exec`, `capture`, `Session.open`, `Job.start`, `Scope.open` | 1 hour | `JEV_FABRIC_TIMEOUT_MS` |
 | `jev`, `decide`, `Jev.connect` | 30 seconds | `JEV_FABRIC_JEV_TIMEOUT_MS` |
-| CLI `wait`, `follow` | 30 seconds | `JEV_FABRIC_WAIT_MS` |
+| CLI `wait`, `follow`; `job.wait()`, `job.follow()` | 30 seconds | `JEV_FABRIC_WAIT_MS` |
 | CLI `watch` | 5 seconds | `JEV_FABRIC_WATCH_MS` |
 
 Defaults are ceilings, not sleeps: completion returns immediately. Empty/unset
@@ -73,211 +81,224 @@ version string:
 `features` lists only what this binary implements; within a protocol major,
 features are only added.
 
-Place `--timeout-ms N`, `--stdin`, `--label` and `--cwd` before the executable/source. Parsing stops
+Place `--timeout-ms N`, `--stdin`, `--label` and `--cwd` before the executable/program. Parsing stops
 there: all subsequent arguments are literal child arguments, including strings
 such as `--timeout-ms`. A command-local `--` ends option and legacy-number
 parsing: `exec -- 123` executes a numeric command named `123` from PATH. It is
-distinct from the initial Bend runtime `--`.
+distinct from the initial `--` after `jev-fabric`.
 
 Legacy forms remain supported: `exec/run/start/jev <ms> ...`,
 `exec <ms> --stdin ...`, `wait <id> <ms>`, `watch <id> <ms> <literal>`.
 Do not specify both a timeout flag and a positional timeout.
 
-`run` timeouts are 1..3600000 ms. Source compilation consumes the same `run` deadline
-as execution. `run` returns a **process receipt**: stdout may contain your
-program's JSON result. It does not
-interpret that output as a verified task outcome. Compile once yourself and use
-`exec` or `start` to avoid repeated compilation.
+## `run`
 
-The compiler can read arbitrary native source/imports and run arbitrary native
-code. Private output paths do not make compilation sandboxed. Compiled artifacts
-remain inside the checked storage root and count towards its directory cap.
-
-## Scope.bend: shared deadline budgets
-
-Use `examples/native/scoped.bend` as a complete timer-free composition example.
-
-- `Scope.open() -> IO(Scope.Budget)` starts one configured work budget.
-- `Scope.with_timeout(ms)` explicitly overrides that budget when needed.
-- `Scope.exec(scope, argv)` / `Scope.run(scope, argv, input)` return process reports.
-- `Scope.start(scope, argv) -> IO(Result<..., Session.Session>)` starts a session
-  with the remaining budget. Close/wait the returned handle normally.
-- `Scope.evaluate(scope, client, request)` returns the threaded affine Jev client
-  and evaluation result, like `Jev.evaluate`.
-- `run_for(scope, argv, input, cap_ms)`, `start_for(scope, argv, cap_ms)` and
-  `evaluate_for(scope, client, request, cap_ms)` add optional shorter local caps.
-
-Pass the **same** budget to successive or concurrent calls. Each operation uses
-remaining time, capped by any local limit; Jev additionally retains its client's
-per-request maximum. Creating a new budget for each call defeats this sharing.
-Session reads/writes do not refresh its lifetime. Jev credential acquisition and
-HTTP share the capped request deadline; the original client settings and updated
-credential cache/call accounting are preserved afterward.
-
-Expired process calls return a timed-out report (124) without launching.
-Expired session/evaluation calls return recoverable errors (124); Jev does not
-retrieve credentials, reserve a call or dispatch HTTP in this case.
-
-**A budget is not an isolated resource/cancellation group.** `Process.cancel`
-still cancels the owning executable's entire native process scope. Budgets are
-sampled at dispatch; validation/scheduling/launch latency is not a real-time
-theorem. They are explicitly passed, not ambient: `run`'s external compile/
-execution limit is **not automatically inherited** by a new budget inside the
-program. Cross-process hierarchical cancellation and cleanup after a native
-crash or SIGKILL are not promised. Low-level explicit-time APIs remain available
-to trusted programs. An outer timeout is not proof of cleanup of nested groups.
-
-## Process.bend
-
-- `Process.exec(argv) -> IO(Process.Report)` uses the configured work default.
-- `Process.exec_input(argv, buffered_stdin)` uses the same default with input.
-- `Process.exec_stdin(argv)` inherits fd 0 with the configured default.
-- `Process.run_input(argv, buffered_stdin, timeout_ms) -> IO(Process.Report)`.
-  Before 0.4.0 this was `Process.run`; Bend 2.0.28+ Base owns that name.
-- `Process.run_stdin(argv, timeout_ms) -> IO(Process.Report)` inherits fd 0.
-- `Process.run_in(argv, buffered_stdin, timeout_ms, inherit_stdin, cwd)` is either
-  of the above, started in the absolute directory `cwd` (`""` inherits).
-- `Process.capture(argv, buffered_stdin, timeout_ms, cap) -> IO(Result<..., RawBytes>)`
-  is recoverable and byte-preserving. Used for private HTTP and credentials;
-  it does not emit events or public receipts.
-- `Process.run_logged(argv, timeout_ms, stdout_file, stderr_file)` consumes
-  owned file descriptors and writes bounded raw spools while returning a report.
-  It accepts 1..3600000 ms; only the detached job worker uses the underlying
-  effect's 24-hour ceiling.
-- `Process.cancel(signal)` cancels the **whole owning native process scope**,
-  not an independently addressable child. The cancellation flag is sticky;
-  the current effect marks scope cancellation as SIGTERM regardless of that
-  argument. Each supervisor sends SIGTERM to its owned group, then SIGKILL once
-  500 ms have passed; this is not a graceful-shutdown guarantee.
-- `Process.show(report)` serializes a receipt; `Process.exit_code(report)`
-  preserves nonzero/timeout/cancel outcomes.
-
-32 concurrent child commands per native process, 64 argv entries (including
-executable), 4096 UTF-8 bytes per entry, no embedded NUL. Normal buffered input
-is 128 KiB; inherited input streams through the OS. Private capture permits a
-larger bounded buffer for HTTP. Reports retain 32 KiB tails per stream and flag
-truncation; text receipts may replace malformed UTF-8. Binary consumers must use
-capture or raw spool reads instead. Spools preserve the **first** 1 MiB; overflow
-is disclosed and draining continues so a full log does not deadlock its child.
-
-`IO.fork`/`IO.join` compose native effects. Shells, pipelines and heredocs are
-ordinary explicitly invoked executables; there is no hidden shell expansion.
-SIGINT/SIGTERM stop owned groups (SIGTERM, then SIGKILL after 500 ms); deadlines
-and foreign failures kill them at once; direct children are reaped. Intentionally escaped daemons, SIGKILL/native crashes or overridden
-signal handlers are outside the guarantee. Side effects are never rolled back.
-
-## Session.bend: interactive native handles
-
-- `open(argv) -> IO(Session)` chooses the configured default once at startup.
-- `start(argv, timeout_ms) -> IO(Session)` explicitly sets that lifetime. Both
-  return before completion; neither refreshes the clock on reads/writes.
-- `write(session, text) -> IO(Session & Result<..., Unit>)` preserves ownership
-  even on EPIPE; at most 65536 Unicode characters per write.
-- `close_input(session) -> IO(Session)` sends EOF and is idempotent.
-- `read_stdout` / `read_stderr(session, offset, max)` return the updated session
-  and recoverable raw bytes; offset <= 1048576 and max <= 65536.
-- `status(session)` returns the session and current stdout/stderr spool sizes.
-- `wait(session)` closes stdin, joins the owned supervisor, closes readers and
-  returns a recoverable process report or launch error.
-- `cancel_scope()` cancels **all** native children in the owning process, not
-  just one session; cancellation is sticky.
-
-Use returned handles in subsequent calls. Empty live reads are not EOF. Each
-spool retains only its first 1 MiB; a size at `spool_limit()` means it may be
-clipped. Correlate/validate protocol replies and stop/restart before that cap if
-you need lossless protocol semantics. Final tails and truncation are separate.
-Start uses checked private storage and the same 1024-directory retention cap.
-A write may be buffered before an asynchronous launch failure becomes visible;
-`wait` remains authoritative. Child deadlines unblock a writer if its peer is
-not reading. Always close/wait sessions; affine ownership alone is not an
-implicit join or destructor. `examples/native/persistent.bend` keeps one child
-alive across three stateful JSONL requests, with no JS runtime.
-
-The only additional primitive is a CLOEXEC pipe returned as stock Base File
-handles (`native/pipe.c`); the existing process supervisor consumes its reader.
-`Process.Native.exec_pipe` also takes `rolling` and `cwd`: the library Session
-passes `False{}` and `""`, keeping first-byte spools; session children and
-interactive jobs use rolling spools, which keep the latest 1 MiB per stream
-behind a header (the bytes written so far and whether the stream has ended) and
-may live for a day.
-`Process.stdin()` likewise returns a CLOEXEC duplicate of fd 0 as a File, which
-reads a pipe, socket, terminal or file alike; closing it leaves fd 0 open.
-Launch validation, quota and spawn failure paths close transferred descriptors.
-
-## Monitor.bend: explicit bounded observations
-
-`Monitor.command` exposes `watch <id> <duration-ms> <literal>`; literal length is
-1..256 characters. It polls retained job events every 25 ms, preserves partial
-lines separately by stream, trims/filters/deduplicates, emits at most 32 lines
-per batch and clips partial lines at 4096 characters. A 1024-line combined
-stopping threshold is checked after each snapshot; hard caps of 1024 per stream
-bound a single snapshot overshoot to **2048 total lines maximum**.
-
-Output is JSONL: `monitor.batch`, `monitor.loss`, `monitor.end`. Sequence gaps,
-omitted bytes and spool caps reset framing and disclose loss instead of joining
-unrelated partial lines. `outputLimitReached` warns that output may be omitted,
-including when a terminal receipt arrives in the same snapshot. Finishing a
-watch at its deadline does not stop the job; matches are observations, not
-semantic completion. There are no automatic Jev calls or host-agent wakeups.
-Stock Bend IO parking flushes live records; no monitor-specific C is required.
-
-## Pure policy and trust
-
-`TimeCore` and `Cli` hold timer/configuration/argument policy.
-`MonitorCore`, `HttpCore`, `CredentialCore`, `JevCore` and `ServeCore` hold the other pure policies;
-the original module names remain effectful entrypoints. `Jev.Client` and
-`Jev.Returned` remain public affine type aliases; their constructors live in
-`JevCore`. `Http.post`, `Credentials.resolve` and `Monitor.command` retain their
-interfaces. The pure monitor helpers are now imported from `MonitorCore`.
-
-Every native build checks `native/trust.json`, including transitive pure imports,
-unsafe spellings and proof holes. Pure roots have no trust warnings; foreign IO
-drivers still do. See [exact proof coverage and assumptions](safe-bend.md).
-
-## Codec.bend and Wire.bend
-
-`Codec.Value() -> Data` aliases the pinned strict JSON AST. `read`, `read_bytes`,
-`decode_utf8`, and `encode` return recoverable `Result` values. `field`, `text`,
-and `array` are typed accessors. `Wire.request`, `body`, `response`, and `usage`
-implement Jev's complete typed wire contract.
-
-The boundary rejects malformed UTF-8, duplicate object keys, unknown request
-fields, incomplete JSON, malformed numbers, invalid IDs, missing answers,
-extra answer/probability keys and non-finite/out-of-range values. JSON limits:
-1 MiB encoded UTF-8, depth 64, 32768 AST/work units, 256 keys/object and Unicode
-scalars/key, and 1 MiB cumulative key-comparison charge. Requests require
-Choice criteria objects (1..255), Noul instructions, or Score criteria arrays
-(2..10), not a `choices` or `scale` field. See `examples/native/request.json`.
-
-Numbers retain their original lexemes. Wire validation uses **exact decimal
-arithmetic**, not F32: probability bounds and mass tolerance [0.98,1.02] include
-long fractions and tiny exponents without rounding invalid values into range.
-Numeric lexemes are capped at 1024 characters, exponent magnitude 4096, and
-usage counts at the native 48-bit Nat maximum (281474976710655). These limits
-intentionally differ from JavaScript numbers. Generic bounded JSON can preserve
-larger numeric lexemes; wire numeric operations impose the tighter bounds.
-
-Decision-specific codec entry points accept explicit byte limits up to 16 MiB;
-they do not widen these legacy functions. Local logprob replies/results alone
-use a structural work profile up to 524288, still at most 16 MiB, with the same
-depth, object/key and numeric-lexeme limits. See [decision limits](decisions.md#size-limits-and-evidence).
-
-Vendoring, patches, license and hashes: `native/vendor/PROVENANCE.md`.
-
-## Jev.bend
-
-```text
-Jev.connect(max_evaluations, max_tokens)
-  -> IO(Result<..., Jev.Client>)  # configured request-time default
-Jev.from_env(timeout_ms, max_evaluations, max_tokens)
-  -> IO(Result<..., Jev.Client>)
-Jev.evaluate(client, request_json)
-  -> IO(Jev.Client & Result<..., Codec.Value>)
+```sh
+jev-fabric -- run examples/native/pipeline.ts
+jev-fabric -- run --timeout-ms 600000 -- examples/native/wikirace.ts Doom "Albert Einstein"
 ```
 
-Thread the returned client into the next call. The affine type prevents
-accidental overlapping evaluations of the same client. Trusted native code can
-construct additional clients; budgets are not a security policy against it.
+`run` timeouts are 1..3600000 ms (default the work limit). The program is a
+`.ts`, `.mts`, `.cts`, `.tsx`, `.js`, `.mjs`, `.cjs` or `.jsx` file; anything
+else, or a path that looks like an option, is refused with code 2 before
+anything runs, and a `.bend` source is refused with a pointer to
+[the migration](bend-to-typescript.md). Arguments after the program reach it
+verbatim (`process.argv.slice(2)`); it reads this process's stdin.
+
+`run` returns a **process receipt**, the same JSON `exec` prints: the
+program's stdout and stderr (32 KiB tails each), its exit code, and whether it
+timed out. stdout may contain your program's JSON result; `run` does not
+interpret it as a verified task outcome. A nonzero exit ends `run` with that
+code and `native program did not complete successfully` on stderr; the
+deadline ends it with 124. The program runs in its own process group, which
+the deadline kills (SIGTERM, then SIGKILL after 500 ms), as do SIGINT and
+SIGTERM sent to `run`.
+
+How it runs: the executable acts as the Bun CLI when started with
+`BUN_BE_BUN=1`. Each run gets a private directory in the storage home (it
+counts towards the 1024-directory cap, as 0.8.1's compiled program did)
+holding the library this binary carries (`jev-fabric.js`, one ESM file of
+about 240 KB) and a preload; the child is
+`BUN_BE_BUN=1 jev-fabric --preload <dir>/preload.js <program> [args...]`.
+The preload removes `BUN_BE_BUN` from `process.env`, points durable jobs at
+this executable and registers `jev-fabric` as a module bound to that library,
+so `import ... from 'jev-fabric'` works with no `node_modules` (and wins over
+one, or over Bun's auto-install) and always matches the binary running it.
+Everything else is plain Bun: the program's other imports, `tsconfig.json`,
+`bunfig.toml`, `import.meta.main` and top-level await work as with
+`bun program.ts`. For editor types, install the package (`bun add -d jev-fabric`).
+
+One caveat: `Bun.spawn`/`Bun.spawnSync` without an `env` option pass the
+environment Bun started with, which still includes `BUN_BE_BUN=1`; a
+Bun-compiled executable started that way (another `jev-fabric`, say) would
+act as Bun. Pass `env: process.env`, or use the library's `exec`, `Session`
+and `Job`, `node:child_process` or `Bun.$`, which all use `process.env`.
+
+Outside `run`, a program imports the same library from npm and runs with
+`bun program.ts`; durable jobs then re-enter the `jev-fabric` executable on
+`PATH` (or the one `setExecutable()` names).
+
+The program and its imports are trusted code: `run` is not a sandbox.
+
+## Errors and results
+
+Failures throw `FabricError`, whose `code` is the exit status the CLI uses for
+the same failure (2 usage, 22 invalid input, 124 deadline, 1 or an errno for
+the rest) and whose message is the CLI's. A process **report** is a value,
+never an error:
+
+```ts
+type Report = {code: number; timedOut: boolean; cancelled: boolean; stdoutCut: boolean; stderrCut: boolean; stdout: string; stderr: string}
+```
+
+`receipt(report)` serializes it exactly as `exec` prints it; `report.code` is
+the exit code (124 for a deadline, 128+n for a signal).
+
+Concurrency is promises: start several calls and `await Promise.all(...)`.
+
+## Shared deadlines: `Scope`
+
+`examples/native/scoped.ts` is a complete example.
+
+- `Scope.open()` starts one budget of the configured work limit;
+  `Scope.withTimeout(ms)` one of `ms` (1..3600000).
+- `scope.exec(argv, {input?, capMs?})` runs a buffered child with what is left,
+  at most `capMs`, and returns its report.
+- `scope.start(argv, {capMs?})` starts a `Session` whose lifetime is what is
+  left. Close and wait it as usual.
+- `jev.evaluate(request, {scope, capMs?})` and `jev.decide(request, {scope, capMs?})`
+  spend the same budget (see Jev below).
+- `scope.remaining(capMs?)` is the milliseconds left now.
+
+Pass the **same** scope to successive or concurrent calls. Each operation uses
+remaining time, capped by any local limit; Jev additionally keeps its client's
+per-request maximum. Creating a new scope for each call defeats this sharing.
+Session reads/writes do not refresh its lifetime. Jev credential acquisition and
+HTTP share the capped request deadline; the client's settings and its updated
+credential cache and call accounting are kept afterward.
+
+An expired scope launches nothing: `exec` returns a timed-out report (124),
+`start` and Jev throw code 124, and Jev neither retrieves credentials, reserves
+a call nor dispatches HTTP.
+
+**A scope is not an isolated resource/cancellation group.** `cancel()` still
+cancels every child of the program. Scopes are sampled at dispatch;
+validation/scheduling/launch latency is not a real-time theorem. They are
+explicitly passed, not ambient: `run`'s outer deadline is **not automatically
+inherited** by a scope inside the program. Cross-process hierarchical
+cancellation and cleanup after a crash or SIGKILL are not promised. An outer
+timeout is not proof of cleanup of nested groups.
+
+## Processes
+
+- `exec(argv, {input?, inheritStdin?, timeoutMs?, cwd?}) -> Promise<Report>` runs
+  one child: buffered `input` (at most 128 KiB, then closed) or this program's
+  own stdin (`inheritStdin`), within `timeoutMs` (default the work limit),
+  started in the absolute directory `cwd`. It covers 0.8.1's `exec`,
+  `exec_input`, `exec_stdin`, `run_input`, `run_stdin` and `run_in`.
+- `capture(argv, {input?, timeoutMs?, limit?}) -> Promise<Captured>` is
+  byte-preserving: the report's fields with `stdout`/`stderr` as `Uint8Array`,
+  at most `limit` bytes each (default 1 MiB). Reject `stdoutCut`/`stderrCut`
+  if you need every byte.
+- `cancel()` cancels **every** child this program owns, and every later
+  launch; it is sticky. Each supervisor sends SIGTERM to its group, then
+  SIGKILL once 500 ms have passed; this is not a graceful-shutdown guarantee.
+- `interrupted()` tells whether SIGINT, SIGTERM or `cancel()` interrupted the
+  program. Once the library has started a child, those signals cancel the
+  children instead of ending the program: check it in long loops.
+- `receipt(report)` serializes a report.
+
+32 concurrent child commands per process, 64 argv entries (including the
+executable), 4096 UTF-8 bytes per entry, no embedded NUL. Reports retain
+32 KiB tails per stream and flag truncation; text reports replace malformed
+UTF-8. Binary consumers use `capture` or `job.read(stream, {base64: true})`.
+Spools preserve the **first** 1 MiB; overflow is disclosed and draining
+continues so a full log does not deadlock its child.
+
+Shells, pipelines and heredocs are ordinary explicitly invoked executables;
+there is no hidden shell expansion. SIGINT/SIGTERM stop owned groups (SIGTERM,
+then SIGKILL after 500 ms); deadlines and foreign failures kill them at once;
+direct children are reaped, and every owned group is killed when the program
+exits. Intentionally escaped daemons, SIGKILL/crashes or overridden signal
+handlers are outside the guarantee. Side effects are never rolled back.
+
+## `Session`: interactive children
+
+- `Session.open(argv, {timeoutMs?})` starts a child with an open stdin and
+  returns before it completes. The lifetime (default the work limit) is chosen
+  once; reads and writes never refresh it.
+- `session.write(text)` writes at most 65536 characters, waiting while the
+  child is not reading.
+- `session.closeInput()` sends EOF; idempotent.
+- `session.readStdout(offset, max?)` / `readStderr` return raw bytes from a
+  byte offset (offset <= 1048576, max <= 65536, default 65536).
+- `session.status()` returns `{stdout, stderr}`: bytes spooled so far.
+- `session.wait()` closes stdin, joins the child and returns its report; a
+  launch failure throws.
+
+Empty live reads are not EOF. Each spool retains only its first 1 MiB; a size
+at `Session.spoolLimit` means it may be clipped. Correlate/validate protocol
+replies and stop/restart before that cap if you need lossless protocol
+semantics. Final tails and truncation are separate. A session uses checked
+private storage and the same 1024-directory cap. A write may be buffered before
+an asynchronous launch failure becomes visible; `wait()` remains
+authoritative. Child deadlines unblock a writer if its peer is not reading.
+Always `wait()`: dropping a session is not a join.
+`examples/native/persistent.ts` keeps one child alive across three stateful
+JSONL requests.
+
+## `Job`: durable jobs from a program
+
+The CLI's job verbs as methods. Jobs live in the storage home and outlive the
+program; other processes, and other jev-fabric binaries, can control them.
+
+| Call | CLI | Returns |
+| --- | --- | --- |
+| `Job.start(argv, {timeoutMs?, label?, cwd?, input?: 'pipe'})` | `start` | a `Job` once its worker is ready |
+| `Job.list()` | `list` | `{jobs, truncated}` |
+| `new Job(id)` | | a handle to an existing job |
+| `job.status()` | `status` | running state or final receipt |
+| `job.wait({timeoutMs?})` | `wait` | the receipt, or the running state at the deadline |
+| `job.stop()` | `stop` | the receipt once the worker has ended the group |
+| `job.events({after?, timeoutMs?})` | `events` | retained events past the cursor (a long poll with `timeoutMs`) |
+| `job.follow({after?, timeoutMs?})` | `follow` | an async iterator of events, `follow.loss`, then one `follow.end` |
+| `job.write(text)` / `job.closeInput()` | `write` / `close-input` | a write record |
+| `job.read(stream, {offset?, max?, waitMs?, base64?})` | `read` | a read record |
+
+Records are exactly the CLI's JSON, parsed (see Durable observations below).
+`Job.start` re-enters the jev-fabric executable as the detached worker: under
+`run` that is the running binary; from source it is Bun with `src/main.ts`;
+otherwise the `jev-fabric` on PATH, or what `setExecutable(argv)` names.
+Batch jobs keep each stream's first 1 MiB; `input: 'pipe'` jobs the latest
+1 MiB.
+
+## Jev and decisions
+
+```ts
+const jev = Jev.connect({maxEvaluations: 1, maxTokens: 10000})
+const {json, value} = await jev.evaluate({state: '...', questions: {healthy: {type: 'noul', instructions: '...'}}})
+```
+
+- `Jev.connect({maxEvaluations, maxTokens, timeoutMs?, env?})` is a client
+  from the environment (`env`, default `process.env`): `JEV_PROVIDER`,
+  `JEV_MODEL`, the provider key or `JEV_CREDENTIAL_COMMAND`, and the
+  per-request maximum `timeoutMs` (default `JEV_FABRIC_JEV_TIMEOUT_MS`, else
+  30 s). It covers 0.8.1's `connect` and `from_env`.
+- `jev.evaluate(request, {scope?, capMs?})` is one legacy Jev evaluation.
+- `jev.decide(request, {credential?, scope?, capMs?})` is one additive lossless
+  decision on the **same** budget; inspect `value.status` and `value.budget`.
+  `credential` is that request's key alone, never cached.
+- `jev.budget` is `{remaining, evaluations, tokens, limit}`.
+
+A request is JSON text or an object (serialized with `JSON.stringify`). An
+answer is `{json, value}`: `json` is the exact validated encoding (numbers keep
+their original lexemes), `value` the same parsed with `JSON.parse`. Use `json`
+when exact decimals matter.
+
+Calls on one client run one at a time, in call order, each with the budget the
+previous one left (0.8.1 threaded an affine client for the same reason). Make
+another client for independent budgets. Trusted code can construct more
+clients; budgets are not a security policy against it.
 
 Provider configuration:
 
@@ -288,90 +309,90 @@ Provider configuration:
 | `vercel` | `AI_GATEWAY_API_KEY` | `typesafe-ai/jev` |
 | `subq` | `SUBQ_API_KEY` | `subq-snap-preview` |
 
-Routes are fixed in `Jev.route`; `JEV_MODEL` overrides the default. A request's
-explicit model takes precedence. `JEV_CREDENTIAL_COMMAND` is a JSON argv array,
-not a shell fragment. It has a 5-second maximum (or the shorter request time),
-16 KiB output bound, strict UTF-8 and printable single-line credential checks.
+Routes are fixed; `JEV_MODEL` overrides the default. A request's explicit model
+takes precedence. `JEV_CREDENTIAL_COMMAND` is a JSON argv array, not a shell
+fragment. It has a 5-second maximum (or the shorter request time), 16 KiB
+output bound, strict UTF-8 and printable single-line credential checks.
 Resolver failures are sanitized. Successful credentials cache only in the
-threaded affine client; nothing writes them into job metadata.
+client object; nothing writes them into job metadata.
 
 The request is validated before resolution. Exhausted budgets prevent even the
 credential command. Invalid requests/credentials consume no call; dispatched
 HTTP failures do consume a call and are not retried. Credential time is deducted
-from the same monotonic HTTP deadline. Reported token overshoot blocks later
-calls with overflow-safe accounting. Legacy `Wire.usage` requires both
-`input_tokens` and `output_tokens`: absent or malformed usage is rejected, not
-counted as zero. The final request may still be billed above the token limit.
-Use call limits as well.
+from the same HTTP deadline. Reported token overshoot blocks later calls.
+Legacy usage requires both `input_tokens` and `output_tokens`: absent or
+malformed usage is rejected, not counted as zero. The final request may still
+be billed above the token limit. Use call limits as well.
 
-`Http.post` is a lower-level explicit URL API for trusted programs. It validates
-HTTPS, disables proxies, rejects redirects, verifies TLS, bounds the response
-to 1 MiB and never retries. `JEV_FABRIC_HTTP` selects the transport:
+Legacy Jev HTTP is HTTPS only, ignores proxies, follows no redirects, verifies
+TLS (`CURL_CA_BUNDLE` may name the trust anchors), bounds the response to
+1 MiB and never retries. `JEV_FABRIC_HTTP` selects the transport:
 
 | Value | Transport |
 | --- | --- |
-| `auto` (default, or unset) | `pooled`, falling back to `exec` only if libcurl cannot be loaded |
-| `pooled` | System libcurl in-process (`native/http.c`). One process-wide share keeps DNS, TLS sessions and connections warm, so later calls skip the TCP/TLS handshake. Fails if libcurl is unavailable |
+| `auto` (default, or unset) | `pooled`, falling back to `exec` only if it cannot run |
+| `pooled` | Bun's `fetch` in-process; its connection pool keeps DNS, TLS sessions and connections warm for later calls |
 | `exec` | A fresh `curl` process per request; key/body travel in escaped private stdin config and curl startup config is disabled |
 
-Any other value fails closed before network access. Both transports honour
-`CURL_CA_BUNDLE` for trust anchors, as the curl tool does. The pooled transport
-keeps the key only in process memory and zeroes its request buffers; the
-connection cache lives as long as the process. Process cancellation (SIGINT,
-SIGTERM, `Process.cancel`) aborts in-flight pooled transfers.
-System libcurl/curl, CA configuration and PATH remain trusted deployment
-dependencies.
+Any other value fails closed before network access. `cancel()`, SIGINT and
+SIGTERM abort in-flight transfers.
 
-## Decision modules (additive)
-
-The full [lossless decisions reference](decisions.md) covers preset defaults,
-provider options, images, client methods and exact-number examples. Legacy
-`Jev`/`Wire` contracts above remain unchanged.
-
-```text
-Decision.evaluate(client, request_json, credential)
-  -> IO(Jev.Returned)  # Jev.Client & Result<..., Codec.Value>
-Decision.evaluate_for(scope, client, request_json, credential, cap)
-  -> IO(Jev.Returned)
-Decision.encode(value) -> Result<..., String>
-```
-
-Pass an empty credential string to use the configured resolver/key environment.
-Thread the returned client as with `Jev.evaluate`: both operations spend the
-same evaluation/token budget. `DecisionConfig` resolves presets and explicit
-routes; `DecisionWire.request` validates the additive schema, `body` translates
-it, `raw_usage` extracts accounting independently of answer validity, and
-`reply` normalizes while retaining the original AST and `rawJson`.
-`DecisionGenerated` handles opted-in Anthropic/Google estimates;
-`DecisionLocal` handles local chat token-logprob readouts, separately from the
-native `llama-system-one` protocol.
-
-Results carry `status:ok|error`, typed answers, provenance and a budget marker.
-Absent confidence/distributions are never synthesized. A per-question refusal
-keeps successful siblings. Malformed successful provider responses return
-`status:error` with captured raw text and usage, rather than hiding a billed
-response behind answer-validation failure. Transport failures remain errors;
-the local multi-request driver can return a captured post-dispatch error result.
-Usage is accounted before answer validation. Unknown/invalid usage or uncertain
-dispatch stops further shared evaluations. Reported token overshoot returns the
-original result with `budget:{exhausted:true,reason:'reported-token-limit'}` and
-blocks subsequent calls. Zero limits, invalid preflight and credential failures
-cause no model dispatch.
-
+Decisions: the [lossless decisions reference](decisions.md) covers preset
+defaults, provider options, images and exact-number examples.
 `DECISION_PROVIDER`, `DECISION_MODEL`, `DECISION_ENDPOINT`, preset key variables
-and `DECISION_CREDENTIAL_COMMAND` configure this path; `custom` uses
-`DECISION_API_KEY`. Per-request credentials are ephemeral, not cached in the
-Jev client. `DecisionHttp.post` uses private curl **7.82+** with repeated `--json`
-chunks in its stdin configuration so a 16 MiB body does not exceed curl's
-configuration-line limit. It does not use the pooled legacy transport or
-`JEV_FABRIC_HTTP`, and never retries, follows redirects or uses environment
-proxies. Plain HTTP requires exact `127.0.0.1` or `[::1]` and `allowLocal:true`;
-`localhost`/DNS aliases do not qualify. Endpoints and resolver/config overrides
-are trusted inputs. Explicit gateway fallback options can bill multiple stages.
+and `DECISION_CREDENTIAL_COMMAND` configure them; `custom` uses
+`DECISION_API_KEY`. Results carry `status:ok|error`, typed answers, provenance
+and a budget marker. Absent confidence/distributions are never synthesized. A
+per-question refusal keeps successful siblings. Malformed successful provider
+responses return `status:error` with captured raw text and usage. Usage is
+accounted before answer validation. Unknown/invalid usage or uncertain dispatch
+stops further shared evaluations. Reported token overshoot returns the original
+result with `budget:{exhausted:true,reason:'reported-token-limit'}` and blocks
+later calls. Zero limits, invalid preflight and credential failures cause no
+model dispatch. Decision HTTP uses `fetch` with a 16 MiB response bound and no
+retries, redirects or environment proxies. Plain HTTP requires exact
+`127.0.0.1` or `[::1]` and `allowLocal:true`; `localhost`/DNS aliases do not
+qualify. Endpoints and resolver/config overrides are trusted inputs. Explicit
+gateway fallback options can bill multiple stages.
+
+## Pure policy modules
+
+Re-exported namespaces. None of them does IO; they are the code the CLI runs
+and `laws/` proves:
+
+| Namespace | Holds |
+| --- | --- |
+| `Codec` | strict bounded JSON (`read`, `encode`, `validate`, `readBytes`, `decodeUtf8`, the `*WithLimit` and `*Profile` variants), field accessors (`field`, `text`, `array`, `fromJs`) |
+| `Wire` | the legacy Jev wire contract: `request`, `body`, `response`, `usage`, exact decimals |
+| `DecisionWire` | the additive decision schema: request validation, bodies, replies, usage |
+| `DecisionConfig` | decision presets and routes |
+| `TimeCore` | timeout parsing, defaults, the shared-budget arithmetic |
+| `JevCore` | Jev routes, the client value, budget reservation |
+| `HttpCore` | HTTPS endpoint, key and response-bound policy |
+| `CredentialCore` | credential command parsing and checks |
+
+`Codec` values are an AST (`Json`) that keeps every number as its lexeme and
+every object's members in order. The boundary rejects malformed UTF-8,
+duplicate object keys, unknown request fields, incomplete JSON, malformed
+numbers, invalid IDs, missing answers, extra answer/probability keys and
+non-finite/out-of-range values. JSON limits: 1 MiB encoded UTF-8, depth 64,
+32768 AST/work units, 256 keys/object and Unicode scalars/key, and 1 MiB
+cumulative key-comparison charge. Requests require Choice criteria objects
+(1..255), Noul instructions, or Score criteria arrays (2..10), not a `choices`
+or `scale` field. See `examples/native/request.json`.
+
+Wire validation uses **exact decimal arithmetic**, not floats: probability
+bounds and mass tolerance [0.98,1.02] include long fractions and tiny exponents
+without rounding invalid values into range. Numeric lexemes are capped at 1024
+characters, exponent magnitude 4096, and usage counts at 281474976710655
+(48 bits). These limits intentionally differ from JavaScript numbers.
+Decision-specific entry points accept explicit byte limits up to 16 MiB; local
+logprob replies alone use a structural work profile up to 524288. See
+[decision limits](decisions.md#size-limits-and-evidence).
 
 ## Durable observations
 
-`Jobs.command` owns native lifecycle/control flow; `Host.bend` wraps the checked
+The jobs driver (`src/jobs`) owns lifecycle/control flow; `src/store` wraps the checked
 filesystem boundary. Storage root is `JEV_FABRIC_HOME` or `.jev-fabric-native`.
 Roots/job directories require owner-only permissions. Directory traversal,
 symlink components, unsafe marker files and non-private files fail closed.
@@ -391,8 +412,9 @@ refused by every verb that touches the store with exit code 22 (for example
 `storage home uses store format 2; this jev-fabric supports store format 1`),
 and is never rewritten. Within a store version, changes are additive: readers
 ignore unknown fields. The marker is not a job: `list` never shows it and it
-does not count toward the directory cap. `StoreCore` holds the decision and its
-laws; `Host` reads and writes the file.
+does not count toward the directory cap. `src/store/core.ts` holds the decision
+and `laws/store.ts` its laws. Stores written by 0.8.1 are read and controlled
+by this release, and jobs started by either binary are listed and stopped by the other.
 
 ### Job records
 
@@ -417,7 +439,12 @@ UTF-8 partial characters carry across adjacent chunks and reset across loss.
 `process.spool_limit` discloses the hard spool cap. The worker atomically rewrites
 the event file at most every four 25 ms ticks: new events after an idle period
 publish on the next tick, continuous output publishes about every 100 ms, and
-the final replay is written before the receipt. Cursors are monotonically
+the final replay is written before the receipt. Ticks are at least 25 ms apart
+and exactly 25 ms while output is arriving or an event is unsaved, so an event
+is on disk within 100 ms of the output it reports (and `follow` prints it within
+25 ms more). A quiet worker ticks every 50 then 100 ms, and ticks again on the next 25 ms
+boundary once output arrives or its child exits; a `stop` marker is noticed
+within 100 ms. Cursors are monotonically
 increasing within a job; if the first returned sequence skips your cursor,
 older events were evicted. `events` is a snapshot, not a lossless subscriber.
 A recovered crash receipt does not synthesize a missing final replay event.
@@ -472,7 +499,10 @@ left out. At most 1024 jobs are reported; `truncated` discloses more.
 `start --input pipe` starts a job whose stdin stays open. Writers never touch the
 child directly: `write` appends to a private input queue in the job directory
 (`input.queue`, under an advisory lock), and the worker drains the queue into
-the child's stdin every tick (25 ms), in arrival order. The queue holds at most
+the child's stdin in arrival order: it watches the queue file and wakes as a
+writer appends, and it also polls the queue, 1 ms after it last took
+something and backing off to every 100 ms, so a write waits at most 100 ms on
+an idle job even where a file watch is unavailable. The queue holds at most
 1 MiB not yet handed to the child; a write that would pass it fails (code 1,
 `job input queue is full`) and changes nothing, so a child that stops reading
 pushes back on its writers. `close-input` ends input after everything queued
@@ -512,3 +542,19 @@ fail with `job has finished`.
 
 Deleting old directories is an explicit user retention decision. Never delete
 an active job's directory. There is a 1024-directory cap, not automatic GC.
+
+## Not in the library
+
+What 0.8.1's Bend modules offered that the library leaves out, and why:
+
+| 0.8.1 | Why it is not here | Instead |
+| --- | --- | --- |
+| `Monitor.command` (`watch`) | a CLI verb with its own output protocol, not a program building block | `job.follow()` and filter in TypeScript, or `exec([jevFabric, '--', 'watch', ...])` |
+| `Process.run_logged`, `Process.Native.exec_pipe`, `Process.stdin()`, the CLOEXEC pipe | raw file-descriptor plumbing for the job worker and sessions | `Session`, `Job.start(..., {input: 'pipe'})`, `Bun.stdin` |
+| `Http.post` | a lower-level URL API; programs have `fetch` | `fetch`, or `jev.evaluate` for Jev's policy |
+| `Credentials.resolve` | internal to an evaluation | `JEV_CREDENTIAL_COMMAND`, `decide(..., {credential})` |
+| `DecisionGenerated`, `DecisionLocal`, `DecisionHttp`, `DecisionTargets` | internals of `decide` (offline target resolution stays the `resolve-decision` verb) | `jev.decide`, the CLI |
+| `Session.cancel_scope` | the same as `cancel()` | `cancel()` |
+| `Jev.Returned` and threading the affine `Jev.Client` | a `Jev` object serializes its calls and keeps its budget | `jev.budget` |
+| `MonitorCore`, `ServeCore`, `Cli` | policy of CLI verbs, not of programs | the CLI |
+| `IO.fork`/`IO.join` | promises do this | `Promise.all` |

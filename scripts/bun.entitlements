@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- jev-fabric is a Bun-compiled executable: Bun's JavaScriptCore compiles
+     JavaScript at run time, so it needs JIT memory. These are Bun's documented
+     entitlements for signed executables (Reflex signs its daemon with the same
+     set). Releases are signed ad hoc, without the hardened runtime, so today they
+     only matter if a build is signed with it. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <key>com.apple.security.cs.disable-executable-page-protection</key><true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>

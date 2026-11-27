@@ -11,7 +11,7 @@
 #
 # Layout:
 #   $PREFIX/bin/jev-fabric                      -> ../share/jev-fabric/current/bin/jev-fabric
-#   $PREFIX/share/jev-fabric/<version>/         binary, Bend library, serve clients, examples, skill
+#   $PREFIX/share/jev-fabric/<version>/         binary, serve clients, examples, docs, skill
 #   $PREFIX/share/jev-fabric/current            -> <version>
 set -eu
 
@@ -22,10 +22,22 @@ version="${JEV_FABRIC_VERSION:-latest}"
 say() { printf '%s\n' "$*"; }
 fail() { printf 'jev-fabric install: %s\n' "$*" >&2; exit 1; }
 
+# Archives to try, in order: the first one SHA256SUMS lists is installed.
+# macOS releases from 0.9.0 on also ship one archive per architecture; older
+# ones have only darwin-universal.
 case "$(uname -s)-$(uname -m)" in
-  Darwin-*) platform=darwin-universal ;;
-  Linux-x86_64 | Linux-amd64) platform=linux-x64 ;;
-  Linux-aarch64 | Linux-arm64) platform=linux-arm64 ;;
+  Darwin-arm64) platforms='darwin-arm64 darwin-universal' ;;
+  Darwin-x86_64)
+    # A shell under Rosetta reports x86_64 on Apple silicon.
+    if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ]; then
+      platforms='darwin-arm64 darwin-universal'
+    else
+      platforms='darwin-x64 darwin-universal'
+    fi
+    ;;
+  Darwin-*) platforms='darwin-universal' ;;
+  Linux-x86_64 | Linux-amd64) platforms=linux-x64 ;;
+  Linux-aarch64 | Linux-arm64) platforms=linux-arm64 ;;
   *) fail "unsupported platform $(uname -s) $(uname -m); build from source instead" ;;
 esac
 
@@ -44,25 +56,37 @@ if [ "$version" = latest ]; then
 else
   base="https://github.com/$repo/releases/download/$version"
 fi
-asset="jev-fabric-$platform.tar.gz"
-
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT INT TERM
 
 if [ -n "${JEV_FABRIC_ARCHIVE_DIR:-}" ]; then
-  say "Installing $asset from $JEV_FABRIC_ARCHIVE_DIR..."
-  cp "$JEV_FABRIC_ARCHIVE_DIR/$asset" "$JEV_FABRIC_ARCHIVE_DIR/SHA256SUMS" "$work/" \
-    || fail "missing $asset or SHA256SUMS in $JEV_FABRIC_ARCHIVE_DIR"
+  cp "$JEV_FABRIC_ARCHIVE_DIR/SHA256SUMS" "$work/" \
+    || fail "missing SHA256SUMS in $JEV_FABRIC_ARCHIVE_DIR"
 else
-  say "Downloading $asset ($version)..."
-  curl --proto '=https' --tlsv1.2 -fsSL "$base/$asset" -o "$work/$asset" \
-    || fail "could not download $base/$asset"
   curl --proto '=https' --tlsv1.2 -fsSL "$base/SHA256SUMS" -o "$work/SHA256SUMS" \
     || fail "could not download $base/SHA256SUMS"
 fi
 
-expected="$(grep " $asset\$" "$work/SHA256SUMS" || true)"
-[ -n "$expected" ] || fail "SHA256SUMS has no entry for $asset"
+asset=''
+for platform in $platforms; do
+  expected="$(grep " \*\{0,1\}jev-fabric-$platform\.tar\.gz\$" "$work/SHA256SUMS" || true)"
+  if [ -n "$expected" ]; then
+    asset="jev-fabric-$platform.tar.gz"
+    break
+  fi
+done
+[ -n "$asset" ] || fail "SHA256SUMS has no archive for this platform (looked for: $platforms)"
+
+if [ -n "${JEV_FABRIC_ARCHIVE_DIR:-}" ]; then
+  say "Installing $asset from $JEV_FABRIC_ARCHIVE_DIR..."
+  cp "$JEV_FABRIC_ARCHIVE_DIR/$asset" "$work/" \
+    || fail "missing $asset in $JEV_FABRIC_ARCHIVE_DIR"
+else
+  say "Downloading $asset ($version)..."
+  curl --proto '=https' --tlsv1.2 -fsSL "$base/$asset" -o "$work/$asset" \
+    || fail "could not download $base/$asset"
+fi
+
 (cd "$work" && printf '%s\n' "$expected" | checksum >/dev/null) \
   || fail 'checksum mismatch; refusing to install'
 
@@ -81,7 +105,7 @@ ln -sf "$share/current/bin/jev-fabric" "$prefix/bin/jev-fabric"
   || fail "installed binary does not run on this system: $prefix/bin/jev-fabric"
 
 say "Installed jev-fabric $installed to $prefix/bin/jev-fabric"
-say "Bend library: $share/current/native"
+say "Examples and docs: $share/current/examples, $share/current/docs"
 say "Python/TypeScript clients: $share/current/clients"
 case ":$PATH:" in
   *":$prefix/bin:"*) ;;

@@ -7,8 +7,10 @@ executable owns your processes, remembers what they said, and asks
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) a question
 **only when you tell it to**.
 
-Written in [Bend](https://github.com/bendlang/bend). No Node, Python or daemon at
-runtime. Independent of Pi, Codex, Claude or any other harness.
+Written in TypeScript on [Bun](https://bun.sh), compiled into one executable, with
+every law of its pure core proven by [gdp-wired](https://github.com/monotykamary/gdp-wired).
+No Node, Python or daemon at runtime: Bun is inside the binary. Independent of
+Pi, Codex, Claude or any other harness.
 
 ```text
 ● agent: starts a dev server, a test run, a game bridge
@@ -44,13 +46,22 @@ curl -fsSL https://raw.githubusercontent.com/fabric-runtime/jev-fabric/main/inst
 npx skills add fabric-runtime/jev-fabric        # or: bunx skills add fabric-runtime/jev-fabric
 ```
 
-Releases ship a macOS universal binary and Linux x64/arm64 binaries. The installer
-verifies `SHA256SUMS`, installs to `~/.local/bin/jev-fabric`, and puts the Bend
-library at `~/.local/share/jev-fabric/current/native`. Set `JEV_FABRIC_VERSION=v0.1.0`
-to pin a release or `JEV_FABRIC_PREFIX` to change the prefix.
+Releases ship macOS (arm64, x64 and universal) and Linux x64/arm64 binaries. The
+installer picks the one for your machine, verifies `SHA256SUMS`, installs to
+`~/.local/bin/jev-fabric`, and puts the clients, examples and skill under
+`~/.local/share/jev-fabric/current`. Set `JEV_FABRIC_VERSION=v0.1.0` to pin a
+release or `JEV_FABRIC_PREFIX` to change the prefix.
 
-Update any time with `jev-fabric -- update`. Like `bend update`, it prints and
-runs the same `curl … | sh`, and the variables above still apply.
+0.9 is the first TypeScript release. The CLI, `serve`, the store and its
+formats are unchanged from 0.8.1 (protocol 2, store format 1), so 0.8.1 and
+0.9 share a store and each controls the other's jobs. What changed is `run`
+(TypeScript programs instead of Bend) and the cost of carrying a runtime: the
+binary is about 90 MB instead of 5, and a short `exec` round trip takes about
+35 ms on an M-series Mac instead of about 18. See
+[Bend to TypeScript](docs/bend-to-typescript.md).
+
+Update any time with `jev-fabric -- update`. It prints and runs the same
+`curl … | sh`, and the variables above still apply.
 
 From npm, with no install script or download at install time:
 
@@ -59,18 +70,21 @@ npx jev-fabric -- --version                    # or: npm install -g jev-fabric
 ```
 
 npm installs only the matching `jev-fabric-darwin`, `jev-fabric-linux-x64` or
-`jev-fabric-linux-arm64` package (Linux builds need glibc 2.28 or newer). Hosts
-that embed jev-fabric call `require("jev-fabric").binaryPath()` and spawn the
-executable directly; the `serve` clients ship in the package too. Pi Fabric
-prefers your own compatible install and falls back to this package.
+`jev-fabric-linux-arm64` package (Linux builds need glibc 2.17 or newer). Hosts
+that embed jev-fabric call `require("jev-fabric").binaryPath()` (or import
+`jev-fabric/locate`) and spawn the executable directly; the `serve` clients
+ship in the package too. Under Bun, `import {Scope, exec} from 'jev-fabric'` is
+the library itself (`jev-fabric/lib` names it explicitly). Pi Fabric prefers
+your own compatible install and falls back to this package.
 
 <details>
 <summary>Build from source</summary>
 
-Requires **Bend 2.0.38**, Clang and Bun (for the build-time safety gate).
+Requires Bun 1.4.4 (pinned in `package.json`).
 
 ```sh
-sh scripts/build-native.sh             # or: bun run build
+bun install --frozen-lockfile
+bun run build                          # bun build --compile --bytecode → build/jev-fabric
 build/jev-fabric -- --help
 ```
 
@@ -81,7 +95,7 @@ build/jev-fabric -- --help
 ```sh
 jev-fabric -- exec /bin/echo hello                        # literal argv, bounded receipt
 printf 'hi\n' | jev-fabric -- exec --stdin /bin/cat         # forward stdin
-jev-fabric -- run examples/native/pipeline.bend             # compile + run Bend (needs bend)
+jev-fabric -- run examples/native/pipeline.ts              # a TypeScript program, Bun built in
 
 id=$(jev-fabric -- start --label dev /bin/sh -c 'npm run dev' | jq -r .id)   # survives its launcher
 jev-fabric -- watch "$id" ready                            # live, filtered, bounded lines
@@ -96,11 +110,10 @@ jev-fabric -- capabilities                                 # protocol, store for
 ```
 
 A single leading `--` is optional: jev-fabric drops it, so `jev-fabric -- exec ...`
-and `jev-fabric exec ...` are the same call. Bend runtime options go between
-`+RTS` and `-RTS`, and the runtime reads `+RTS`, `-RTS` and `--RTS` wherever they
-appear on jev-fabric's own command line; pass such words to a child through
-`serve` or `--RTS` (everything after it is literal). Shell syntax only
-happens when you invoke a shell. Every child gets its own process group and a
+and `jev-fabric exec ...` are the same call. Every other word reaches the child
+literally: `+RTS` and `-RTS` are no longer runtime options, and only a leading
+`--RTS` (how jev-fabric re-enters itself) is dropped. Shell syntax only happens
+when you invoke a shell. Every child gets its own process group and a
 deadline; receipts keep 32 KiB tails, spools keep the first 1 MiB per stream,
 jobs keep their latest 64 events, and any loss is disclosed, never silent.
 
@@ -159,9 +172,9 @@ jev-fabric -- jev examples/native/request.json 10000         # one billed call
   resolver, and never enter argv, logs or receipts.
 - **Budgets and no retries.** Clients bound calls and reported tokens. Failed
   dispatches still count, and nothing is retried automatically.
-- **Warm connections.** HTTPS runs through the system libcurl in-process with a
-  pooled TLS connection: verified certificates, no redirects, no proxies, 1 MiB
-  bound. `JEV_FABRIC_HTTP=exec` forces a fresh `curl` process per request.
+- **Warm connections.** HTTPS runs in-process through Bun's `fetch` with a warm
+  TLS connection: verified certificates, no redirects, no proxies, 1 MiB bound.
+  `JEV_FABRIC_HTTP=exec` forces a fresh `curl` process per request.
 
 [SubQ Snap](https://docs.subq.ai/) is a System One model with the same contract:
 `JEV_PROVIDER=subq` and `SUBQ_API_KEY` send the same request to
@@ -172,8 +185,8 @@ jev-fabric -- jev examples/native/request.json 10000         # one billed call
 `decide` supports native decision APIs, opt-in generated estimates and local
 token-logprob readouts without changing legacy `jev`. Results retain provider
 JSON (`rawJson` preserves exact numeric text), refusals and provenance; missing
-distributions are never invented. It uses private curl **7.82+**, not pooled
-legacy HTTPS.
+distributions are never invented. Each call is its own HTTPS request, not the
+pooled legacy connection, and needs no curl.
 
 ```sh
 jev-fabric -- decision-providers                 # registered presets, not live availability
@@ -242,35 +255,45 @@ deadlines, credentials and validation stay in the binary. Any other language can
 speak the [protocol](docs/serve-protocol.md) directly. See
 [`examples/clients/`](examples/clients/) for runnable versions.
 
-## Loops in Bend
+## Loops in TypeScript
 
 When a loop needs more than one request at a time (persistent child sessions,
-concurrent effects, shared deadline scopes), write a small Bend program: one
-affine Jev client, one warm connection, and the checked library.
+concurrent calls, shared deadline scopes), write a small TypeScript program and
+`run` it: one Jev client, one warm connection, and the same library the binary
+uses. `run` needs nothing installed besides jev-fabric; `jev-fabric` resolves
+to the library inside the binary.
 
 | Demo | What it does | Measured |
 | --- | --- | --- |
-| [`wikirace.bend`](examples/native/wikirace.bend) | Races Wikipedia links toward a target. Pages with more than 255 links become a tournament of 255-way `choice` calls | Doom (1993) → Albert Einstein in **3 clicks, 6.6 s** |
-| [`doom.bend`](examples/native/doom.bend) + [`bridge.py`](examples/doom/) | Plays ViZDoom's *defend the center* from structured game state, one `choice` per tick | **11 kills, no damage** in 150 decisions, **408 ms** mean |
-| [`persistent.bend`](examples/native/persistent.bend) | One child process keeps state across three JSONL requests | offline |
-| [`scoped.bend`](examples/native/scoped.bend) | Concurrent processes share one deadline budget | offline |
+| [`wikirace.ts`](examples/native/wikirace.ts) | Races Wikipedia links toward a target. Pages with more than 255 links become a tournament of 255-way `choice` calls | Doom (1993) → Albert Einstein in **3 clicks, 6.6 s** |
+| [`doom.ts`](examples/native/doom.ts) + [`bridge.py`](examples/doom/) | Plays ViZDoom's *defend the center* from structured game state, one `choice` per tick | **11 kills, no damage** in 150 decisions, **408 ms** mean |
+| [`persistent.ts`](examples/native/persistent.ts) | One child process keeps state across three JSONL requests | offline |
+| [`scoped.ts`](examples/native/scoped.ts) | Concurrent processes share one deadline budget | offline |
 
-Pooled HTTPS turned the Doom loop from **1144 ms → 365 ms** per decision: only
-the first call pays the TLS handshake.
+The measurements are from 0.8.1's Bend build, whose pooled HTTPS turned the
+Doom loop from **1144 ms → 365 ms** per decision: only the first call pays the
+TLS handshake. 0.9 keeps the connection warm the same way.
 
-```python
-import Base
-import ./native/Jev.bend as Jev
+```ts
+import {Jev, Scope, receipt} from 'jev-fabric'
 
-def main() -> IO(Unit):
-  do IO<Unit>:
-    client : Jev.Client <- IO.try(Jev.Client, Jev.connect(1, 10000))   # calls, tokens
-    result : Jev.Returned <- Jev.evaluate(client, request_json)
-    ...
+const jev = Jev.connect({maxEvaluations: 1, maxTokens: 10000})    // calls, tokens
+const answer = await jev.evaluate({                                // typed, validated
+  state: 'lint and tests are about to run',
+  questions: {go: {type: 'noul', instructions: 'Is it safe to run them now?'}},
+})
+console.log(answer.json)
+const scope = Scope.open()                                         // one shared deadline
+const [a, b] = await Promise.all([scope.exec(['make', 'lint']), scope.exec(['make', 'test'])])
+console.log(receipt(a), receipt(b))
 ```
 
-See the [native API](docs/native-api.md) and the skill's
-[Bend reference](skills/jev-fabric/references/bend-api.md).
+```sh
+jev-fabric -- run examples/native/scoped.ts
+```
+
+See the [library API](docs/native-api.md) and the skill's
+[TypeScript reference](skills/jev-fabric/references/typescript-api.md).
 
 ## Boundaries
 
@@ -278,31 +301,26 @@ See the [native API](docs/native-api.md) and the skill's
 - **`exited` is not success.** A zero exit is an observation; verify the work.
 - **Bounded observations, not a lossless protocol.** No reboot resume,
   exactly-once execution or rollback.
-- **Checked policy core.** Project Bend code has no unsafe definitions; sixteen
-  pure policy modules and three proof roots check without trust warnings, and 49
-  laws cover selected runtime policy. Effects cross an explicit, allowlisted
-  foreign boundary of ten C functions. This is
-  [scoped proof coverage](docs/safe-bend.md), not whole-program verification.
+- **Proven policy core.** Pure policy modules import nothing that does IO, and
+  `bun run laws` proves their rules with gdp-wired, refuses a broken variant of
+  each and holds each rule to the code that ships. This is
+  [scoped proof coverage](docs/laws.md), not whole-program verification.
 
 ## Develop
 
 ```sh
-bun install --frozen-lockfile --ignore-scripts
-bun run check:native-safety      # also enforced by native builds
-bun run test:native              # includes serve conformance and both clients (needs python3)
-bun run typecheck                # the TypeScript client and example
-bun run demo                     # native, no model call
+bun install --frozen-lockfile
+bun run typecheck                # src, laws, tests, the TypeScript client and examples
+bun run test:unit                # bun test src
+bun run laws                     # gdp-wired, ends ALL LAWS PROVEN
+bun run test:conformance         # builds, then the black-box suite against build/jev-fabric
+bun run test                     # all of the above
+bun run demo                     # build, then run examples/native/pipeline.ts; no model call
 ```
 
-Bend's code generation is single-threaded and slow. With a
-[Modal](https://modal.com) account, `JEV_FABRIC_BEND=modal bun run test:native`
-generates the C for the binary and all 24 test fixtures on Modal at once, and
-compiles it with the local clang: about 7 minutes instead of 25 on a 16 GB Mac.
-The same variable works for `bun run build`. See `scripts/modal-bend.py`.
-
 More: [architecture](docs/architecture.md), [shell composition](docs/composition.md),
-[serve protocol](docs/serve-protocol.md),
-[Bend migration](docs/bend-migration.md), [acceptance ledger](docs/native-rewrite-ledger.md).
+[serve protocol](docs/serve-protocol.md), [laws](docs/laws.md),
+[testing](docs/testing.md), [Bend to TypeScript](docs/bend-to-typescript.md).
 
 ## License
 

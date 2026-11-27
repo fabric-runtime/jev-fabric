@@ -5,16 +5,29 @@
     "": {
       "name": "jev-fabric",
       "devDependencies": {
+        "@types/bun": "1.4.5",
         "@types/node": "^24.0.0",
+        "gdp-wired": "0.62.0",
+        "gdp-wired-cli": "0.62.0",
         "typescript": "^6.0.0",
       },
     },
   },
   "packages": {
+    "@types/bun": ["@types/bun@1.4.5", "", { "dependencies": { "bun-types": "1.4.5" } }, "sha512-DpgwNI9z0L1S0gtb45QLCWgwCUcMLnsHYMJHQvpNj7erGiCGBvpggltAIeARrtobNMKMuy0UP7i56tKKgwFs/Q=="],
+
     "@types/node": ["@types/node@24.13.6", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-SGrw/h3KPFshy3OE6ZL53LMBG5vGQQ8/gIpiqz/kRZhPJ7HgwCEs8LBuNtWLa8dvGZVpSF7+Bf+c11HUrCb/yg=="],
+
+    "bun-types": ["bun-types@1.4.5", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-ECHn+9dhL3wv0G6u0+7dQvrnaimXiRDxxerYBmhTaLyJEEuvTPWk2Fye3XIf5Y++JIIiHKfQw4Z7V5D8KuiXbg=="],
+
+    "gdp-wired": ["gdp-wired@0.62.0", "", { "peerDependencies": { "@gdp-ts/core": ">=0.1.0", "typescript": ">=5.0.0" }, "optionalPeers": ["@gdp-ts/core", "typescript"], "bin": { "gdp-wired": "dist/core/cli.js", "gdp-wired-check": "dist/interchange/cli.js", "gdp-wired-agent-consult": "dist/core/agent-consult/cli.js" } }, "sha512-0bfDzQj0E7L0a5Bxbml8+rOE6xfHjc/msOy4j46/SeoORHgEvn3S+T2u80J93/PXpSThQUJFeHkh9JszB5bzJQ=="],
+
+    "gdp-wired-cli": ["gdp-wired-cli@0.62.0", "", { "dependencies": { "gdp-wired": "0.62.0", "typescript": "^5.9.0" }, "bin": { "gdp-wired-cli": "bin.js" } }, "sha512-vAnWeDAKuz3e5iXSiJCQ43zLQix037jaxNLD1quMb64OHcUHZhHo4074wM0vEa29vQl5dxcXk24k8gqKFF47cQ=="],
 
     "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
+
+    "gdp-wired-cli/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
   }
 }

@@ -36,5 +36,7 @@ Writes, closes and stops of one session child still apply in the order they
 were sent, and `jev` calls run one at a time. `jev` takes `provider` and
 `credential` for one request; the clients pass them through and keep nothing.
 
-Tests run against the real executable as part of `bun run test:native`
-(`native/tests/clients.test.ts` runs `python/test_jev_fabric.py` too).
+The Python client's offline suite runs against a built executable:
+`JEV_FABRIC_BIN=build/jev-fabric python3 clients/python/test_jev_fabric.py`
+(CI runs it on every push). The `serve` protocol both clients speak is checked
+by `test/conformance/`.

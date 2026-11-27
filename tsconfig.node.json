@@ -1,0 +1,17 @@
+{
+  // The `serve` client and its example use Node built-ins only, so they are
+  // checked against Node's types, without Bun's.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true
+  },
+  "include": ["clients/typescript/**/*.ts", "examples/clients/**/*.ts"]
+}

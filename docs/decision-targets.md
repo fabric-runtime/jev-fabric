@@ -65,7 +65,7 @@ Given a request file containing state/questions and optional images:
 ```sh
 export DECISION_PROFILES_FILE=examples/decision-profiles.json
 
-# Offline: no credential lookup, resolver command, curl, or model request.
+# Offline: no credential lookup, resolver command or model request.
 jev-fabric -- resolve-decision --profile vision request.json
 
 # Explicit authorized model dispatch.

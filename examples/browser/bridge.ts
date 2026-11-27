@@ -1,10 +1,10 @@
-// Browser bridge for examples/native/browse.bend.
+// Browser bridge for examples/native/browse.ts.
 //
 // Owns one Chrome tab through browser-harness-js's guarded InteractionController
 // (trusted input) and speaks JSON lines over stdio:
 //   bridge -> orchestrator: {"step":n,"log":"...","request":{...Jev request...}} or {"done":{...}}
 //   orchestrator -> bridge: the complete Jev evaluation ({"model":...,"answers":{...},...})
-// Every model call happens in the Bend orchestrator; this process never touches the network
+// Every model call happens in the TypeScript orchestrator; this process never touches the network
 // except to drive the browser. Model output only ever selects observed candidate indexes or
 // text spans copied from the goal: never selectors, coordinates or scripts.
 import { spawn, type ChildProcess } from 'node:child_process';

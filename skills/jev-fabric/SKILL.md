@@ -5,31 +5,30 @@ description: Run, supervise and observe native processes with bounded receipts, 
 
 # jev-fabric
 
-`jev-fabric` is a single native executable (written in Bend, no Node or Python at
-runtime). It owns child processes in their own process groups, keeps bounded
+`jev-fabric` is a single executable (TypeScript compiled with Bun's runtime inside;
+no Node, Bun or Python to install). It owns child processes in their own process groups, keeps bounded
 receipts and event logs, and makes **explicit** typed Jev decisions. No output ever
 triggers a model call by itself: you decide when to ask.
 
 Every command here starts with `jev-fabric --`; the leading `--` is optional and
-dropped (`jev-fabric exec ...` is the same call). Bend runtime options go between
-`+RTS` and `-RTS`, and those words, like `--RTS`, are read by the runtime wherever
-they appear on jev-fabric's own command line.
+dropped (`jev-fabric exec ...` is the same call). Every other argument reaches the
+child literally.
 
 ## Check the install
 
 ```bash
-jev-fabric -- --version        # 0.8.1-native (Bend 2.0.38)
+jev-fabric -- --version        # 0.9.0-native (Bun 1.4.4; darwin-arm64)
 jev-fabric -- capabilities     # {"version":…,"protocol":2,"store":1,"platform":…,"features":[…]}
 ```
 
-If it is missing, install the release binary (macOS universal, Linux x64/arm64):
+If it is missing, install the release binary (macOS arm64/x64, Linux x64/arm64):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/fabric-runtime/jev-fabric/main/install.sh | sh
 ```
 
-It installs to `~/.local/bin/jev-fabric` and the Bend library to
-`~/.local/share/jev-fabric/current/native/`. `jev-fabric -- update` reruns that
+It installs to `~/.local/bin/jev-fabric`, with the clients, examples and docs in
+`~/.local/share/jev-fabric/current/`. `jev-fabric -- update` reruns that
 installer for the latest release. Ask before installing or updating.
 
 ## Run something once
@@ -142,8 +141,8 @@ schema, limits and patterns (including choosing among more than 255 options).
 Legacy `jev` stays strict and unchanged. For multi-provider decisions use
 `decision-providers` (offline registered presets, not live availability),
 `validate-decision request.json` (offline schema check), then an **authorized**
-`decide [--timeout-ms N] request.json [max-tokens]`. This path requires curl
-7.82+ and uses private curl, not the pooled legacy connection.
+`decide [--timeout-ms N] request.json [max-tokens]`. Each decision is its own
+HTTPS request, not the pooled legacy connection.
 
 For model changes, use `resolve-decision [--profile NAME | --provider PROVIDER
 --model MODEL] request.json` first: full routing/adapter preflight without key
@@ -176,7 +175,7 @@ for supported image adapters, options, credentials and client examples.
 When code (not you, turn by turn) makes many calls, one `serve` session beats
 repeated CLI invocations: one Jev client, so the shared `jev`/`decide` call/token
 budget spans the session. Legacy Jev caches its credential and keeps TLS warm;
-`decide` resolves ephemeral credentials and uses private curl per dispatch.
+`decide` resolves ephemeral credentials and makes its own request per dispatch.
 
 ```bash
 jev-fabric -- serve --timeout-ms 600000 20 50000   # 10 min, ≤20 Jev calls, ≤50000 tokens
@@ -221,24 +220,25 @@ window moved past your offset. `closeInput` sends end of input; `stop`, `wait`,
 `typescript/jev-fabric.ts`). The protocol reference is `docs/serve-protocol.md`
 in the repository.
 
-## Composed programs in Bend
+## Composed programs in TypeScript
 
-For loops that need persistent interactive child sessions, concurrent effects or
-shared deadline scopes (a game bot, a crawler, a supervisor), write a Bend
+For loops that need persistent interactive child sessions, concurrent calls or
+shared deadline scopes (a game bot, a crawler, a supervisor), write a TypeScript
 program against the library and run it:
 
 ```bash
-jev-fabric -- run program.bend arg1 arg2     # compiles (needs `bend` 2.0.38), then runs
+jev-fabric -- run program.ts arg1 arg2      # the Bun inside jev-fabric runs it; nothing to install
 ```
 
-Legacy Jev HTTPS keeps one pooled TLS connection per process, so a Bend program
-or a `serve` session making many Jev calls is much faster than repeated `jev` CLI
-invocations. See
-[references/bend-api.md](references/bend-api.md).
+`import {Jev, Scope, Session, exec} from 'jev-fabric'` resolves to the library
+the binary carries. Legacy Jev HTTPS keeps its TLS connection warm per process,
+so a program or a `serve` session making many Jev calls is much faster than
+repeated `jev` CLI invocations. See
+[references/typescript-api.md](references/typescript-api.md).
 
 ## Boundaries
 
-- Trusted native execution, **not a sandbox**. Commands run with your privileges.
+- Trusted execution, **not a sandbox**. Commands run with your privileges.
 - Shell syntax only happens when you invoke a shell explicitly.
 - Logs are bounded observations: the first 1 MiB per stream is spooled (the
   latest 1 MiB for session children), receipts keep 32 KiB tails, events keep

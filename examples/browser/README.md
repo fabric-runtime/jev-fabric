@@ -11,7 +11,7 @@ observes the page's candidates and prints one Jev request, in the style of
   each described with its role, name, state and named context (for example `in dialog: Departure`)
 - `type_text`: which word span of the goal to type, so no text model is needed
 
-All heads are answered in one round trip; `examples/native/browse.bend` makes the
+All heads are answered in one round trip; `examples/native/browse.ts` makes the
 call and sends the validated answers back. Model output only ever selects an
 observed candidate or a span copied from the goal: never selectors, coordinates or
 scripts. The guarded layer rechecks origin, identity and occlusion before acting.
@@ -19,11 +19,11 @@ scripts. The guarded layer rechecks origin, identity and occlusion before acting
 ```bash
 git clone https://github.com/monotykamary/browser-harness-js ../browser-harness-js
 export JEV_PROVIDER=typesafe TYPESAFE_API_KEY=...     # or JEV_CREDENTIAL_COMMAND
-jev-fabric -- run examples/native/browse.bend          # Wikipedia: Gödel's incompleteness theorems
+jev-fabric -- run examples/native/browse.ts            # Wikipedia: Gödel's incompleteness theorems
 
 BROWSE_URL='https://www.google.com/travel/flights?hl=en' \
 BROWSE_GOAL='Find one-way flights from Zurich to London on October 20, 2026, for one adult in economy.' \
-BROWSE_STEPS=25 jev-fabric -- run examples/native/browse.bend
+BROWSE_STEPS=25 jev-fabric -- run examples/native/browse.ts
 ```
 
 | Variable | Default |

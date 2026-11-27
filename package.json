@@ -1,10 +1,19 @@
 {
   "name": "jev-fabric",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
-  "description": "Native process orchestration with typed, explicit Jev decisions, written in Bend.",
+  "description": "Native process orchestration with typed, explicit Jev decisions, written in TypeScript and proven with gdp-wired.",
   "type": "module",
   "license": "MIT",
+  "packageManager": "bun@1.4.4",
+  "exports": {
+    ".": {
+      "types": "./src/lib.ts",
+      "bun": "./src/lib.ts",
+      "default": "./src/lib.ts"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "jev-fabric": "build/jev-fabric"
   },
@@ -15,22 +24,34 @@
     "docs",
     "examples",
     "install.sh",
-    "native",
     "scripts",
     "skills",
-    "static"
+    "static",
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.test-main.ts",
+    "!src/**/*.test-util.ts"
   ],
   "scripts": {
-    "build": "sh scripts/build-native.sh",
-    "build:native": "sh scripts/build-native.sh",
-    "test:native": "sh scripts/test-native.sh",
-    "check:native-safety": "bun scripts/check-native-safety.ts",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "bun run typecheck && bun run test:native",
-    "demo": "sh scripts/build-native.sh && build/jev-fabric -- run examples/native/pipeline.bend"
+    "build": "bun build --compile --minify --bytecode --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/main.ts --outfile build/jev-fabric",
+    "build:linux-x64": "bun build --compile --minify --bytecode --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target=bun-linux-x64-baseline src/main.ts --outfile build/linux-x64/jev-fabric",
+    "build:linux-arm64": "bun build --compile --minify --bytecode --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target=bun-linux-arm64 src/main.ts --outfile build/linux-arm64/jev-fabric",
+    "build:darwin-arm64": "bun build --compile --minify --bytecode --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target=bun-darwin-arm64 src/main.ts --outfile build/darwin-arm64/jev-fabric",
+    "build:darwin-x64": "bun build --compile --minify --bytecode --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target=bun-darwin-x64-baseline src/main.ts --outfile build/darwin-x64/jev-fabric",
+    "build:release": "sh scripts/build-release.sh",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "test:unit": "bun test src",
+    "laws": "bun run laws/run.ts",
+    "laws:doc": "bun scripts/laws-doc.ts",
+    "test:conformance": "bun run build && JEV_FABRIC_BIN=${JEV_FABRIC_BIN:-build/jev-fabric} bun test test/conformance",
+    "test": "bun run typecheck && bun run test:unit && bun run laws && bun scripts/laws-doc.ts --check && bun run test:conformance",
+    "demo": "bun run build && build/jev-fabric -- run examples/native/pipeline.ts"
   },
   "devDependencies": {
+    "@types/bun": "1.4.5",
     "@types/node": "^24.0.0",
+    "gdp-wired": "0.62.0",
+    "gdp-wired-cli": "0.62.0",
     "typescript": "^6.0.0"
   },
   "repository": {

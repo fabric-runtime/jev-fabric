@@ -101,7 +101,7 @@ try {
 
 Discovery lists **registered preset definitions**, not live service models,
 credential availability or verified account access. Defaults below come from
-[`DecisionConfig.bend`](../native/DecisionConfig.bend); a model name is not proof
+[`src/decision/config.ts`](../src/decision/config.ts); a model name is not proof
 that it exists or is enabled on your account. Discovery returns an array of 14
 objects with `provider`, `api`, `defaultModel`, `endpoint`, `credentialEnv`,
 `imageSupport` (`supported`, `unsupported`, `model-dependent`) and `generated`.
@@ -346,7 +346,7 @@ post-dispatch failures as `status:error` with its captures/accounting.
 ## Budgets, credentials and transport
 
 `jev` and `decide` share one session evaluation/token budget and run in arrival
-order on the same affine client. Zero evaluation or token limits, invalid
+order on the same client. Zero evaluation or token limits, invalid
 preflight and credential failures cause no model dispatch. Each dispatched
 evaluation consumes a call; no HTTP call is automatically retried.
 
@@ -368,22 +368,22 @@ Credentials come from the preset key variable, `DECISION_API_KEY` for `custom`,
 or `DECISION_CREDENTIAL_COMMAND` (a trusted JSON argv resolver, not shell text).
 A JSONL/client `credential` applies only to that request. Decision credentials
 are resolved per evaluation, never cached in the shared Jev client, echoed or
-logged. They travel over private pipes, including the curl configuration pipe,
-not process argv. Do not put credentials into persisted request examples.
+logged. They travel in request headers (or over private pipes to a credential
+command), never in process argv. Do not put credentials into persisted request examples.
 
-The new transport requires **curl 7.82+** and uses private curl execution, not
-legacy pooled HTTP. Repeated `--json` chunks in the private stdin configuration
-concatenate the body without separators, avoiding curl's configuration-line
-limit for full 16 MiB requests. `JEV_FABRIC_HTTP` selects only the unchanged
-legacy transport. Curl startup config,
-redirects and environment proxies are disabled; HTTPS certificates are verified.
+Decisions use Bun's `fetch`, one request per evaluation with no shared pool,
+and need no curl (0.8.1 ran the curl 7.82+ executable). `JEV_FABRIC_HTTP`
+selects only the legacy `jev` transport. Redirects are not followed (a 3xx is
+returned as is), environment proxies are ignored, HTTPS certificates and host
+names are verified (`CURL_CA_BUNDLE` may name the trust anchors), and a
+response over 16 MiB fails the transfer rather than being truncated.
 Plain HTTP requires `allowLocal:true` and exactly `127.0.0.1` or `[::1]`
 (optionally port 1..65535), not `localhost`, DNS aliases or other loopback
 spellings. Local APIs require the opt-in even with HTTPS. Anonymous bearer
 requests are allowed only on opted-in exact loopback; Anthropic/Google still
 need a key. URL userinfo, queries, fragments and backslashes are rejected.
 
-Endpoint overrides, resolver executables, PATH/curl and CA configuration are
+Endpoint overrides, resolver executables, PATH and CA configuration are
 trusted deployment inputs, not a sandbox. An explicit endpoint receives your
 selected credential and evidence; never copy one from untrusted model output.
 
@@ -400,13 +400,12 @@ logprob replies/results alone use a wider structural profile (up to 524288 work
 units), still under 16 MiB; capture storage is additionally bounded, not silently
 truncated into a successful answer.
 
-Implementation: [`Decision.bend`](../native/Decision.bend),
-[`DecisionWire.bend`](../native/DecisionWire.bend),
-[`DecisionGenerated.bend`](../native/DecisionGenerated.bend),
-[`DecisionLocal.bend`](../native/DecisionLocal.bend), and
-[`DecisionHttpCore.bend`](../native/DecisionHttpCore.bend).
-Primary references recorded by those modules and the
-[routing evidence notes](../native/tests/decision-routing-notes.md):
+Implementation: [`decision.ts`](../src/decision/decision.ts),
+[`wire.ts`](../src/decision/wire.ts),
+[`generated.ts`](../src/decision/generated.ts),
+[`local.ts`](../src/decision/local.ts), and
+[`http-core.ts`](../src/decision/http-core.ts) in `src/decision/`.
+Primary references recorded by those modules:
 
 - [TypeSafe API](https://docs.typesafe.ai/api.md) and [models](https://docs.typesafe.ai/models.md).
 - [SubQ Decisions API](https://docs.subq.ai/endpoints/decisions-api/) and [models](https://docs.subq.ai/using-the-api/models/).

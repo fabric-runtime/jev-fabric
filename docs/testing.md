@@ -1,43 +1,63 @@
-# Proof-led verification
+# Testing
 
-Bend's type/effect checks are not a substitute for semantic laws. Remove a
-runtime case only when its obligation is discharged by a checked law on the
-actual implementation, or it is already witnessed at the same boundary.
-Compiler/Base correctness and foreign-code behavior remain explicit assumptions.
+Four layers, each checking something the others can't:
 
-## Existing policy reductions
+```sh
+bun install --frozen-lockfile
+bun run typecheck          # tsc over src/, laws/, test/, the TypeScript client and examples
+bun run test:unit          # bun test src: the pure modules and their drivers
+bun run laws               # gdp-wired: every law of the pure core, ends ALL LAWS PROVEN
+bun run test:conformance   # builds build/jev-fabric, then runs test/conformance against it
+bun run test               # all four, plus a check that docs/laws.md is current
+```
 
-`native/tests/time-proofs.bend` remains unchanged. These five concrete cases in
-`time-core.bend` were removed after mapping their obligations:
+## Unit tests
 
-| Removed example | Universal law | Remaining witness |
-| --- | --- | --- |
-| Empty configuration uses fallback 50 | `omitted_configuration_uses_default` | Real CLI default handling and timer-free operations |
-| Remaining time after expiration is zero | `elapsed_time_is_subtracted_not_renewed` | Asymmetric subtraction, exact-deadline zero, real shared-budget expiration |
-| Two ordinary local-cap examples | `local_cap_is_applied_before_narrowing` | A value above U32 range, plus actual local deadlines |
-| Serve maximum is one day | `serve_connection_may_last_a_day` | CLI parsing, help, handshake and session integration |
+`src/<area>/*.test.ts`, next to the code. Pure modules are tested by value;
+drivers against real processes, temporary stores under `.tmp/` and local fake
+HTTP endpoints. They run from source, so no build is needed.
 
-The remaining native `core`, `policy-core`, and `time-core` assertions compile
-through one `policy-checks.bend` executable, exercised once by `safety.test.ts`.
-This removes two independent compilation jobs, not any parser, floating-point,
-foreign-code or overflow coverage. Individual source fixtures remain available
-for focused investigation. The full suite still compiles every other required
-fixture and performs the complete safety audit; it does not trust stale binaries.
+## Laws
 
-## Boundaries that still need tests
+`laws/<area>.ts` states each pure rule as a [gdp-wired](https://github.com/monotykamary/gdp-wired)
+rule, proves its laws, refuses a broken variant of each, and runs the rule
+beside the real code. `bun run laws` prints one row per item and ends with
+`ALL LAWS PROVEN` only when every row holds (about 20 s). [Laws](laws.md) lists
+them; `bun run laws:doc` regenerates that page from the same entries, and
+`bun run test` fails if it is stale.
 
-- JSON/UTF-8 parsing, encoding and exact raw provider evidence.
-- Real protocol differences, image encodings and response-envelope variants.
-- Native process, filesystem, clock, HTTP and numerical foreign code.
-- Authentication/dispatch ordering and shared-budget behavior in the driver.
-- TypeScript/Python normalization, ABI shapes and immutable client handles.
-- Host settings propagation, persistence and lazy first-use behavior.
+A law is not a reason to delete a test case unless the case's obligation is a
+proven law about the code it tested, or the same boundary is already
+witnessed elsewhere. The laws don't reach the drivers (processes, files,
+clocks, `fetch`, libc), so those keep their tests.
 
-Use one conformance corpus across independent implementations where practical;
-it is not redundant merely because the same input reaches different code.
-Do not delete adversarial cases or previously observed regressions to hit a
-numerical test-count target. Pi's verified-kernel bridge tests are retained: the
-laws do not prove the TypeScript producers or emitted ABI adapters.
+## Conformance
 
-See [decision-proof-coverage.md](decision-proof-coverage.md) for the decision
-policy laws and their exact test replacements.
+`test/conformance/` is a black-box suite of the executable: every CLI verb,
+the `serve` protocol and the on-disk store, compared byte for byte with what
+the 0.8.1 Bend binary did. `JEV_FABRIC_BIN` names the binary under test
+(`bun run test:conformance` sets it to `build/jev-fabric`); with no
+`JEV_FABRIC_BIN`, `bun test test/conformance` runs the 0.8.1 oracle at
+`.tmp/oracle-0.8.1/jev-fabric`. `JEV_FABRIC_OTHER_BIN` adds the compatibility
+group: jobs started by one binary listed, read, written to, stopped and
+recovered by the other, in both directions. See
+[its README](../test/conformance/README.md) for what is normalised and where
+0.8.1 differs from its own docs.
+
+No test reaches the network or uses a real credential: Jev and decision calls
+go to a local fake endpoint or a fake `curl` on `PATH`.
+
+## Clients
+
+The Python client has its own offline suite against a built binary:
+
+```sh
+JEV_FABRIC_BIN=build/jev-fabric python3 clients/python/test_jev_fabric.py
+```
+
+## CI
+
+`.github/workflows/ci.yml` runs typecheck, unit tests, laws and conformance
+(and the Python client suite) on Ubuntu and macOS for every push and pull
+request. A release builds every platform's binary and smoke-tests each on its
+own runner before anything is published.

@@ -1,49 +1,51 @@
 name: ci
 on: [push, pull_request]
 jobs:
-  native:
-    # Emits C on Linux; macOS compiles that same C below, as releases do.
-    runs-on: ubuntu-latest
-    env:
-      BEND_NO_TELEMETRY: '1'
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run typecheck
-      - run: sh scripts/setup-bend-ci.sh
-      # Includes the serve conformance suite and both clients (python3 is preinstalled).
-      - run: bun run test:native
-      - run: bend native/main.bend -o jev-fabric.c
-      - uses: actions/upload-artifact@v4
-        with:
-          name: jev-fabric-c
-          path: jev-fabric.c
-          if-no-files-found: error
-  native-macos:
-    # macOS compiles the C that Bend emitted on Linux, as releases do.
-    needs: native
+      - run: bun run test:unit
+      - run: bun run laws
+      - run: bun scripts/laws-doc.ts --check
+      # Builds build/jev-fabric, then runs the black-box suite against it.
+      - run: bun run test:conformance
+      # Offline; python3 is preinstalled on both runners.
+      - run: python3 clients/python/test_jev_fabric.py
+        env:
+          JEV_FABRIC_BIN: build/jev-fabric
+      - run: sh scripts/smoke.sh build/jev-fabric
+
+  release-build:
+    # The release build as release.yml runs it: every platform cross-compiled
+    # on one Mac, packaged, then installed from the archives by install.sh.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          name: jev-fabric-c
-      - run: |
-          mkdir -p build
-          clang -std=c11 -O3 -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 \
-            jev-fabric.c -lpthread -lm -o build/jev-fabric
-      - name: Smoke test
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: sh scripts/build-release.sh
+      - name: Install from the archives
         run: |
           set -eux
-          build/jev-fabric -- --help | grep -q 'usage: jev-fabric'
-          build/jev-fabric -- exec /bin/echo ok | grep -q '"stdout":"ok\\u000a"'
-          build/jev-fabric -- validate examples/native/request.json >/dev/null
-          id=$(build/jev-fabric -- start /bin/sh -c 'echo ready' | sed 's/.*"id":"\([0-9a-f]*\)".*/\1/')
-          build/jev-fabric -- wait "$id" | grep -q '"state":"exited"'
-          printf '{"id":1,"op":"exec","argv":["/bin/echo","ok"]}\n' | build/jev-fabric -- serve | grep -q '"id":1,"ok":true'
+          JEV_FABRIC_ARCHIVE_DIR="$PWD/dist" JEV_FABRIC_PREFIX="$RUNNER_TEMP/prefix" sh install.sh
+          sh scripts/smoke.sh "$RUNNER_TEMP/prefix/bin/jev-fabric"
+          node scripts/package-npm.mjs dist "$RUNNER_TEMP/npm-out"
+
   install-script:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sh -n install.sh && sh -n scripts/package-release.sh
+      - run: |
+          for f in install.sh scripts/*.sh; do sh -n "$f"; done

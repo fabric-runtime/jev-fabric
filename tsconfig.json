@@ -1,15 +1,18 @@
 {
+  // Everything that runs on Bun: the implementation, its laws and tests, and
+  // the examples (`jev-fabric` resolves to src/lib.ts through package.json
+  // "exports"). tsconfig.node.json checks the code that must run on Node.
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
+    "target": "ES2023",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
-    "moduleResolution": "NodeNext",
-    "types": ["node"],
+    "types": ["bun"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "erasableSyntaxOnly": true,
     "skipLibCheck": true
   },
-  "include": ["clients/typescript/**/*.ts", "examples/clients/**/*.ts"]
+  "include": ["src/**/*.ts", "laws/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "examples/native/**/*.ts", "examples/browser/**/*.ts"]
 }

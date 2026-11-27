@@ -1,17 +1,17 @@
 # The serve protocol
 
 `jev-fabric -- serve` is a JSONL session over stdin and stdout for callers in any
-language. One session holds one affine Jev client (its call and token budget, its
+language. One session holds one Jev client (its call and token budget, its
 cached legacy credential and warm pooled HTTPS connection), one deadline, and
 the session children it spawned. Additive `decide` shares the evaluation/token
-budget but uses ephemeral credentials and private curl 7.82+, not that pool.
+budget but uses ephemeral credentials and its own HTTPS request, not that pool.
 Every other operation reuses the CLI's contracts: the receipts, job records and
 monitor records are the same JSON the CLI prints.
 
 The protocol is the contract. [`clients/python/jev_fabric.py`](../clients/python/jev_fabric.py)
 and [`clients/typescript/jev-fabric.ts`](../clients/typescript/jev-fabric.ts) are
-thin convenience wrappers around it, and `native/tests/serve.test.ts` and
-`native/tests/sessions.test.ts` check it against the executable. The shared
+thin convenience wrappers around it, and `test/conformance/serve.test.ts` and
+`test/conformance/sessions.test.ts` check it against the executable. The shared
 vocabulary (lifetimes, verbs, records) is in [Shell composition](composition.md).
 
 ## Session
@@ -88,7 +88,7 @@ distinct `id`.
   `jev`, `decide`, a slow `start` or `spawn`) never holds up another request.
 - `write` and `closeInput` for an interactive durable job are queued by the
   session as they arrive, so they too apply in arrival order; the job's worker
-  drains its queue every 25 ms.
+  drains its queue as it is appended to (at most 100 ms later).
 - `write` and `closeInput` for one session child are applied in the order they
   arrived: a write starts only after the previous write to that child has been
   accepted by its stdin. A `stop` of that child takes effect after every write and
@@ -214,14 +214,20 @@ the same receipt and event shapes as a job, with `"lifetime":"session"`:
 - `status`, `wait`, `events` and `watch` work as for jobs; `stop` stops the
   child's process group (`SIGTERM`, then `SIGKILL` after 500 ms) and answers its
   receipt.
-- A connection may have 16 running session children. Each is supervised by a
-  worker process, which the connection starts with its own executable; a child's
-  receipt stays readable until the connection ends.
+- A connection may have 16 running session children. Each is supervised inside
+  the serve process, which holds its lease and writes its job files as a job's
+  worker does, so the CLI and other processes see it as they see a job (by its
+  directory); a child's receipt stays readable until the connection ends. Each
+  child leads a session and process group of its own.
 - When the connection ends (end of input, its deadline, an oversized line, the
   read limit), serve closes the children's stdin and stops their process groups,
   then forces any that remain after 3 seconds, and finally removes their
-  directories. If serve itself is killed, each worker notices that its owner has
-  gone within 25 ms and stops its child.
+  directories. `SIGTERM` or `SIGINT` to serve stops every child as `stop` does
+  (each receipt says `cancelled`, exit 143); the session goes on, but no later
+  child starts. If serve itself is killed, a small watchdog it started with its
+  first child (`/bin/sh`) sees it go at once, stops each child's process group
+  (`SIGTERM`, then `SIGKILL` after 500 ms) and publishes each one's cancelled
+  receipt; the directories stay.
 
 `timeoutMs` bounds a session child's own lifetime, and the connection bounds it
 too: a child never outlives the session deadline less the two-second receipt grace.
@@ -242,16 +248,16 @@ ceilings, not delays: completion returns immediately.
 ## How requests run
 
 The session's reader frames stdin into lines and hands them to one coordinating
-fiber, which owns the Jev client and the session children. It answers
+hub, which owns the Jev client and the session children. It answers
 `validate`, `validateDecision`, `decisionProviders` and `capabilities` itself
-and starts a fiber for every other
-request; each fiber prints its own response. Only Bend's event loop prints, so
-a response line is always written whole.
+and starts a task for every other
+request; each task prints its own response. Each response line is written
+whole, in one write, so lines never interleave.
 
-`jev` runs inside the session process, threading one affine `Jev.Client`
-through every call, as a Bend program does. Its credential is resolved on the
-first call and cached in that client, and HTTPS keeps its pooled TLS connection
-between calls. `decide` threads the same client/budget but resolves its own
+`jev` runs inside the session process, on one Jev client that takes its calls
+one at a time, in order. Its credential is resolved on the first call and
+cached in that client, and HTTPS keeps its pooled TLS connection between
+calls. `decide` threads the same client/budget but resolves its own
 ephemeral credential and uses the private decision transport.
 
 `read`, `write`, `closeInput`, `list` with `"scope":"session"` and `spawn` run in
@@ -263,7 +269,8 @@ error response, never the session. It also means those operations pay one extra
 process start (tens of milliseconds). Children inherit the session's
 environment, including `JEV_FABRIC_HOME`, so job ids work across sessions and
 the CLI. One serve process runs at most 32 supervised children at once, session
-workers included; a request beyond that fails with an error response.
+children included; a request beyond that fails with an error response (a
+`spawn`, "session child did not start").
 
 ## Jev
 
